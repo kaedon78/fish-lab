@@ -1,0 +1,1715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish Lab</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #12181c; color: #d3dde0;
+      font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px;
+      display: flex; min-height: 100vh;
+    }
+    #sidebar {
+      width: 440px; flex-shrink: 0; background: #182024;
+      border-right: 1px solid #27333a; padding: 16px;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    }
+    #sidebar h1 { font-size: 16px; margin: 0 0 12px; color: #5fd4e0; }
+    .control { margin-bottom: 14px; }
+    .control > label { display: block; margin-bottom: 4px; color: #85969c; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    select, input[type="text"], input[type="number"] {
+      background: #212b30; color: #d3dde0; border: 1px solid #334249;
+      border-radius: 4px; padding: 6px 8px; font-size: 14px;
+    }
+    select, input[type="text"] { width: 100%; }
+    .seed-row { display: flex; gap: 6px; }
+    .seed-row input { flex: 1; }
+    button {
+      background: #24363d; color: #d3dde0; border: 1px solid #36505a;
+      border-radius: 4px; padding: 7px 12px; cursor: pointer; font-size: 13px;
+    }
+    button:hover { background: #2e4650; }
+    #cfg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+    .knob { display: flex; align-items: center; gap: 6px; }
+    .knob input { width: 62px; }
+    .knob span { font-size: 11px; color: #a3b2b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #palette { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; }
+    .swatch { display: flex; align-items: center; gap: 6px; }
+    .swatch input[type="color"] { width: 28px; height: 24px; padding: 0; border: 1px solid #334249; border-radius: 4px; background: none; cursor: pointer; flex-shrink: 0; }
+    .swatch span { font-size: 12px; color: #a3b2b8; }
+    .btn-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    #export-out, #json-out {
+      width: 100%; height: 200px; margin-top: 10px; background: #0f1416;
+      color: #8fd4a0; border: 1px solid #27333a; border-radius: 4px;
+      font-family: Consolas, monospace; font-size: 11px; white-space: pre; display: none;
+    }
+    .hint { color: #66777d; font-size: 11px; margin-top: 4px; }
+    #main { flex: 1; padding: 15px 20px; }
+    h2 { font-size: 14px; color: #85969c; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #27333a; padding-bottom: 6px; margin: 26px 0 14px; }
+    h2:first-child { margin-top: 0; }
+    .feat { font-size: 11px; color: #7eadb0; margin-top: 10px; line-height: 1.5; font-family: Consolas, monospace; columns: 3 200px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 10px; max-width: 1100px; }
+    .grid .cell { text-align: center; }
+    .grid img { image-rendering: pixelated; border-radius: 4px; border: 1px solid #27333a; display: block; cursor: pointer; }
+    .grid .cap { font-size: 10px; color: #66777d; margin-top: 3px; }
+    .grid img:hover { border-color: #5fd4e0; }
+    .toggle-row { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
+    .toggle-row input { width: 18px; height: 18px; }
+    .toggle-row label { cursor: pointer; color: #5fd4e0; font-size: 13px; }
+    .creator { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+    .creator canvas { image-rendering: pixelated; border-radius: 8px; border: 1px solid #27333a; display: block; }
+    .creator .btn-row { max-width: 512px; }
+    .creator-groups { display: flex; flex-direction: column; gap: 14px; }
+    .cgroup-title { font-size: 11px; font-weight: bold; color: #5fd4e0; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; border-bottom: 1px solid #27333a; padding-bottom: 3px; }
+    .creator-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px 18px; max-width: 560px; }
+    .cfield { display: flex; flex-direction: column; gap: 3px; }
+    .cfield > label { font-size: 11px; color: #85969c; text-transform: uppercase; letter-spacing: 0.4px; }
+    .cfield select, .cfield input[type="number"] { width: 100%; }
+    .color-row { display: flex; align-items: center; gap: 5px; }
+    .color-row input[type="color"] { width: 34px; height: 34px; padding: 0; border: 1px solid #334249; border-radius: 4px; background: none; cursor: pointer; flex-shrink: 0; }
+    .presets { display: flex; gap: 3px; flex-wrap: wrap; }
+    .presets button { width: 15px; height: 15px; padding: 0; border-radius: 3px; border: 1px solid #334249; cursor: pointer; }
+    .pen { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+    .parent { display: flex; flex-direction: column; gap: 6px; width: 256px; }
+    .parent .ptitle { font-size: 11px; font-weight: bold; color: #5fd4e0; text-transform: uppercase; letter-spacing: 1px; }
+    .parent img { image-rendering: pixelated; border-radius: 6px; border: 1px solid #27333a; display: block; }
+    .parent .plabel { font-size: 11px; color: #7eadb0; font-family: Consolas, monospace; }
+    .cross { font-size: 28px; color: #5fd4e0; align-self: center; }
+    .pen-controls { display: flex; flex-direction: column; gap: 8px; }
+    .pen-controls label { font-size: 11px; color: #85969c; text-transform: uppercase; letter-spacing: 0.4px; }
+    .grid .acts { display: flex; gap: 3px; justify-content: center; margin-top: 3px; }
+    .grid .acts button { padding: 2px 6px; font-size: 11px; }
+    .fx { font-size: 11px; font-weight: bold; min-height: 15px; margin-top: 2px; }
+    .cfield.flags { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+    .cfield.flags > label:first-child { width: 100%; }
+    .flag { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #c3d0d4; cursor: pointer; }
+    .flag:has(input:disabled) { opacity: 0.45; cursor: default; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>🐟 Fish Lab</h1>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="custom-toggle">
+      <label for="custom-toggle">🎨 Custom fish (edit features)</label>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="breed-toggle">
+      <label for="breed-toggle">🧬 Breeding pen (cross two fish)</label>
+    </div>
+
+    <div class="control">
+      <label for="habitat">Habitat</label>
+      <select id="habitat"></select>
+    </div>
+
+    <div class="control">
+      <label for="seed">Seed</label>
+      <div class="seed-row">
+        <input type="text" id="seed" value="fish_1000" spellcheck="false">
+        <button id="roll">🎲</button>
+      </div>
+      <div class="hint">Same seed + habitat always renders the same fish.</div>
+    </div>
+
+    <div class="control">
+      <label for="size">Gallery cell width</label>
+      <select id="size">
+        <option value="96">96 px</option>
+        <option value="128" selected>128 px</option>
+        <option value="192">192 px</option>
+      </select>
+    </div>
+
+    <div class="control">
+      <label>Config knobs (0–1)</label>
+      <div id="cfg"></div>
+    </div>
+
+    <div class="control">
+      <label>Habitat scene palette</label>
+      <div id="palette"></div>
+    </div>
+
+    <div class="btn-row">
+      <button id="reset">Reset</button>
+      <button id="reshuffle">Reshuffle gallery</button>
+      <button id="export">Export palette + config</button>
+    </div>
+    <textarea id="export-out" readonly spellcheck="false"></textarea>
+    <div class="hint">Paste the scene into HABITATS.&lt;habitat&gt;.scene and the config into DEFAULT_FISH_CONFIG.</div>
+  </div>
+
+  <div id="main"></div>
+
+  <script type="module">
+    // =======================================================================
+    // fishGen — procedural, seeded side-view pixel fish.
+    //
+    // Self-contained: no imports. To reuse in another project, lift this block
+    // (down to the "lab UI" banner) into fishGen.js and add `export` to the
+    // public API at the bottom of it.
+    //
+    // Same recipe as the avatar portraits: a stable string -> PRNG, every
+    // feature rolled up front in a FIXED order into a plain `feat` object, then
+    // drawing reads only that object. Fixed-order rolling means turning a
+    // config knob down removes just its own feature instead of reshuffling the
+    // rest of the fish, and the feature object doubles as the creator's save
+    // format. Authored on a 64x48 logical grid, nearest-neighbour upscaled.
+    // =======================================================================
+
+    const FISH_W = 64, FISH_H = 48;
+
+    // ---- PRNG (xmur3 string hash -> mulberry32) ----------------------------
+    function xmur3(str) {
+      let h = 1779033703 ^ str.length;
+      for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+      return () => { h = Math.imul(h ^ (h >>> 16), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return (h ^= h >>> 16) >>> 0; };
+    }
+    function mulberry32(a) {
+      return () => {
+        a |= 0; a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    const makePRNG = (s) => mulberry32(xmur3(s)());
+    const ri = (rng, min, max) => min + Math.floor(rng() * (max - min + 1));
+    const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+    // Weighted pick from { key: weight } — always consumes exactly one draw.
+    function pickW(rng, weights) {
+      const entries = Object.entries(weights).filter(([, w]) => w > 0);
+      let r = rng() * entries.reduce((s, [, w]) => s + w, 0);
+      for (const [k, w] of entries) { if ((r -= w) < 0) return k; }
+      return entries[entries.length - 1][0];
+    }
+    const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+    // Position hash for texture — independent of the rng stream.
+    function hash(x, y) { const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return n - Math.floor(n); }
+    function noise(x, y) { // bilinear value noise, 0..1
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      return lerp(lerp(hash(xi, yi), hash(xi + 1, yi), u), lerp(hash(xi, yi + 1), hash(xi + 1, yi + 1), u), v);
+    }
+
+    // ---- colour (internally [r,g,b]; hex only at the edges) ----------------
+    const _hex = new Map();
+    function hx(hex) {
+      let c = _hex.get(hex);
+      if (!c) { const n = parseInt(hex.slice(1), 16); c = [(n >> 16) & 255, (n >> 8) & 255, n & 255]; _hex.set(hex, c); }
+      return c;
+    }
+    const toHex = (c) => '#' + c.map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
+    const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+    const sh = (c, f) => [c[0] * f, c[1] * f, c[2] * f];
+    const luma = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    const WHITE = [250, 250, 244], PUPIL = [12, 10, 14], MOUTH = [26, 14, 16], BONE = [232, 228, 210], GULLET = [40, 6, 14];
+
+    // ---- tiny RGBA raster (alpha-blended plots, no canvas needed) ----------
+    const raster = () => new Uint8ClampedArray(FISH_W * FISH_H * 4);
+    function plot(R, x, y, c, a = 1) {
+      x = Math.floor(x); y = Math.floor(y);
+      if (x < 0 || y < 0 || x >= FISH_W || y >= FISH_H || a <= 0) return;
+      const i = (y * FISH_W + x) * 4;
+      if (a >= 1) { R[i] = c[0]; R[i + 1] = c[1]; R[i + 2] = c[2]; R[i + 3] = 255; return; }
+      const da = R[i + 3] / 255, oa = a + da * (1 - a), k = da * (1 - a);
+      R[i] = (c[0] * a + R[i] * k) / oa; R[i + 1] = (c[1] * a + R[i + 1] * k) / oa; R[i + 2] = (c[2] * a + R[i + 2] * k) / oa;
+      R[i + 3] = oa * 255;
+    }
+    function darken(R, x, y, f) {
+      if (x < 0 || y < 0 || x >= FISH_W || y >= FISH_H) return;
+      const i = (y * FISH_W + x) * 4;
+      if (R[i + 3]) { R[i] *= f; R[i + 1] *= f; R[i + 2] *= f; }
+    }
+    function disc(R, cx, cy, r, c, a = 1) {
+      for (let dy = -r; dy <= r; dy++) {
+        const dx = Math.floor(Math.sqrt(r * r - dy * dy) + 0.25);
+        for (let x = cx - dx; x <= cx + dx; x++) plot(R, x, cy + dy, c, a);
+      }
+    }
+    // Darken every opaque pixel that touches transparency: a crisp 1px inner
+    // outline, done per layer so fins and body each keep their own contour.
+    function edgeDarken(R, f = 0.6) {
+      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= 128;
+      const edges = [];
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+        if (solid(x, y) && (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1))) edges.push(x, y);
+      }
+      for (let i = 0; i < edges.length; i += 2) darken(R, edges[i], edges[i + 1], f);
+    }
+    function over(dst, src) { // src composited over dst, in place
+      for (let i = 0; i < dst.length; i += 4) {
+        const a = src[i + 3] / 255;
+        if (a) plot(dst, (i / 4) % FISH_W, Math.floor(i / 4 / FISH_W), [src[i], src[i + 1], src[i + 2]], a);
+      }
+    }
+
+    // ---- tables ------------------------------------------------------------
+    // Body shape presets. Ranges are [min, max]; peak/taper/arch are percents.
+    //   peak  = where the body is deepest (% from the snout)
+    //   blunt = head roundness 1 (bulbous) .. 5 (pointed)
+    //   taper = peduncle depth as % of max depth
+    //   arch  = % of depth above the centreline (back vs belly)
+    const SHAPES = {
+      torpedo: { len: [38, 44], depth: [13, 17], peak: [30, 42], blunt: [2, 4], taper: [14, 22], arch: [52, 58] },
+      deep:    { len: [28, 34], depth: [22, 28], peak: [38, 50], blunt: [2, 4], taper: [12, 20], arch: [50, 56] },
+      round:   { len: [28, 34], depth: [19, 24], peak: [42, 55], blunt: [1, 2], taper: [16, 24], arch: [50, 55] },
+      long:    { len: [48, 52], depth: [6, 8],   peak: [15, 28], blunt: [2, 4], taper: [45, 65], arch: [50, 54] },
+      slender: { len: [42, 48], depth: [8, 11],  peak: [30, 48], blunt: [3, 5], taper: [24, 34], arch: [50, 56] },
+    };
+    // Caudal fin presets: length in px, span as a fraction of body depth.
+    const TAILS = {
+      forked:   { len: [8, 12],  span: [0.5, 0.75] },
+      lunate:   { len: [7, 10],  span: [0.6, 0.85] },
+      truncate: { len: [6, 9],   span: [0.4, 0.6] },
+      rounded:  { len: [6, 10],  span: [0.4, 0.6] },
+      pointed:  { len: [5, 9],   span: [0.3, 0.5] },
+      veil:     { len: [11, 16], span: [0.7, 1.0] },
+      tentacles: { len: [9, 14], span: [0.4, 0.7] }, // eldritch: writhing arms instead of a fin
+    };
+    const DORSALS = ['none', 'rounded', 'swept', 'spiny', 'sail', 'double', 'long'];
+    const ANALS = ['none', 'rounded', 'swept', 'long'];
+    const PATTERNS = ['none', 'bands', 'hstripes', 'spots', 'blotch', 'reticulate', 'split', 'starry'];
+    // Eldritch accent colours: runes, auras, extra irises.
+    const ELDRITCH = ['#7affd0', '#b07aff', '#d8ff6a', '#ff4a6a', '#5af0ff', '#ff9a3a'];
+
+    // Habitats are the "theme" (like the avatar factions): a scene palette the
+    // lab can edit, plus the colour pools and weights that bias what grows there.
+    // `mods` multiply the matching config chances (0 = never in this habitat);
+    // `mods.eldritch` scales every Lovecraftian feature at once, so the weirdness
+    // climbs as you go deeper. Scene extras: rays (light shafts), snow (drifting
+    // specks), stars (twinkling points), nebula (cloudy glow in scene.light).
+    const HABITATS = {
+      pond: {
+        label: 'Pond',
+        scene: { bg1: '#4a7a6a', bg2: '#122a26', light: '#e0f4d8', bubble: '#e4f6ee', speck: '#9ac0a8' },
+        rays: 0.8, snow: 0.3,
+        shapes: { round: 3, torpedo: 3, deep: 1, slender: 0.5, long: 0.3 },
+        tails: { veil: 4, forked: 3, rounded: 2, truncate: 1, lunate: 0.3, pointed: 0.2 },
+        dorsals: { rounded: 4, sail: 1.5, long: 1, swept: 1, spiny: 0.3, none: 1, double: 0.3 },
+        patterns: { blotch: 5, none: 2, spots: 1.5, split: 1.5, bands: 0.5, reticulate: 1.5, hstripes: 0.3 },
+        body: ['#f4f0e8', '#ff7a2a', '#e8b030', '#d8342a', '#1c1a1e', '#f2d6a8', '#ffb070'],
+        pattern: ['#ff6a1a', '#d8342a', '#1c1a1e', '#f4f0e8', '#e8b030'],
+        fin: ['#f4f0e8', '#ff9a50', '#ffffff', '#e8b030', '#1c1a1e'],
+        eye: ['#1c1a1e', '#e8c24a', '#c84a2a'],
+        glow: ['#e0f4d8'],
+        mods: { lure: 0, photophore: 0, barbel: 1.2, teeth: 0, bigEye: 0.4, lips: 2.5, eldritch: 0.03 },
+      },
+      river: {
+        label: 'River',
+        scene: { bg1: '#6f8f5c', bg2: '#1f2c1c', light: '#e8f0c0', bubble: '#e9f2d8', speck: '#a7b98a' },
+        rays: 0.6, snow: 0.5,
+        shapes: { torpedo: 5, deep: 1, round: 1, long: 1, slender: 3 },
+        tails: { forked: 4, truncate: 3, rounded: 2, lunate: 0.5, pointed: 0.6, veil: 0.2 },
+        dorsals: { rounded: 4, swept: 2, spiny: 3, sail: 0.5, double: 1.5, long: 0.6 },
+        patterns: { none: 3, spots: 4, hstripes: 2, bands: 2, blotch: 2, reticulate: 1, split: 0.5 },
+        body: ['#8a9a5b', '#a7a9a2', '#6b5a3a', '#c7c2b0', '#4f6b4a', '#9a7a4a', '#cfd6d8', '#5e6f7a'],
+        pattern: ['#2b2a1e', '#3d4a2a', '#1e2622', '#e0a040', '#c74a3a'],
+        fin: ['#c2843a', '#8a9a5b', '#d96a3a', '#6b5a3a', '#cfd6d8'],
+        eye: ['#e8c24a', '#f0e6c0', '#c8a060'],
+        glow: ['#e8f0c0'],
+        mods: { lure: 0, photophore: 0, barbel: 1.4, teeth: 0.5, bigEye: 0.5, lips: 0.3, eldritch: 0.05 },
+      },
+      lake: {
+        label: 'Lake',
+        scene: { bg1: '#4f7f8f', bg2: '#0f2430', light: '#d8eef0', bubble: '#e0f0f4', speck: '#8fb0b8' },
+        rays: 0.7, snow: 0.5,
+        shapes: { torpedo: 4, slender: 2, deep: 1.5, round: 1, long: 0.5 },
+        tails: { forked: 3, truncate: 3, rounded: 1.5, lunate: 0.5, pointed: 0.3, veil: 0.2 },
+        dorsals: { spiny: 3, double: 3, rounded: 3, swept: 1, sail: 0.3, long: 0.3 },
+        patterns: { bands: 3, spots: 3, none: 2, hstripes: 1, blotch: 1, reticulate: 0.5 },
+        body: ['#6f8a4a', '#c8b04a', '#a8b4b0', '#4a6a5a', '#8a7a5a', '#5a7080', '#b8c4c0'],
+        pattern: ['#1e2a1e', '#2a3a2a', '#d8603a', '#e8d070', '#3a3020'],
+        fin: ['#d8603a', '#c8b04a', '#6f8a4a', '#a8b4b0', '#3a3020'],
+        eye: ['#e8c24a', '#d8e0d0', '#c86a3a'],
+        glow: ['#d8eef0'],
+        mods: { lure: 0, photophore: 0, barbel: 0.6, teeth: 0.8, bigEye: 0.4, lips: 0.3, eldritch: 0.15 },
+      },
+      coast: {
+        label: 'Coast',
+        scene: { bg1: '#5aa6b0', bg2: '#18485a', light: '#f0fff8', bubble: '#f0fbff', speck: '#d8e8c8' },
+        rays: 1, snow: 0.6,
+        shapes: { torpedo: 4, deep: 2, round: 1.5, slender: 2, long: 0.8 },
+        tails: { forked: 3, truncate: 2, rounded: 2, lunate: 1, pointed: 0.5, veil: 0.2 },
+        dorsals: { spiny: 3, rounded: 2, swept: 2, double: 1.5, long: 0.6, sail: 0.3 },
+        patterns: { none: 3, blotch: 2, spots: 2, hstripes: 2, reticulate: 1, bands: 1, split: 0.5 },
+        body: ['#a8b0b4', '#c8b48a', '#d0503a', '#5a6a70', '#8a7a60', '#e0e4e0', '#6a8a7a'],
+        pattern: ['#3a3a3a', '#5a4a30', '#f0e8d8', '#a03020', '#2a3a40'],
+        fin: ['#a8b0b4', '#d0503a', '#e8d8b0', '#5a6a70'],
+        eye: ['#e8c24a', '#f0f0e0', '#e86a3a'],
+        glow: ['#f0fff8'],
+        mods: { lure: 0, photophore: 0, barbel: 0.5, teeth: 0.6, bigEye: 0.5, lips: 0.4, eldritch: 0.1 },
+      },
+      coralReef: {
+        label: 'Coral Reef',
+        scene: { bg1: '#3fb6d9', bg2: '#0b4f7a', light: '#d8fbff', bubble: '#e6fbff', speck: '#bfeeff' },
+        rays: 1, snow: 0.2,
+        shapes: { torpedo: 2, deep: 4, round: 2, long: 0.4, slender: 1 },
+        tails: { forked: 2, lunate: 2, truncate: 2, rounded: 2, pointed: 0.3, veil: 0.5 },
+        dorsals: { rounded: 2, swept: 2, spiny: 3, sail: 1.5, double: 1, long: 0.5 },
+        patterns: { none: 1, bands: 4, hstripes: 2, spots: 2, split: 2, blotch: 1, reticulate: 1 },
+        body: ['#ff7a1a', '#ffcf2e', '#2f6bff', '#7a3cff', '#ff4d8d', '#1fc7a0', '#f0453a', '#f4f4f0', '#1b2a6b'],
+        pattern: ['#ffffff', '#14161f', '#ffcf2e', '#2f6bff', '#ff7a1a', '#0e2a52'],
+        fin: ['#ffcf2e', '#14161f', '#2f6bff', '#ff4d8d', '#ffffff'],
+        eye: ['#ffd23a', '#ffffff', '#ff6a3a', '#7fe0ff'],
+        glow: ['#7fe0ff'],
+        mods: { lure: 0, photophore: 0, barbel: 0.2, teeth: 0.3, bigEye: 0.6, lips: 0.2, eldritch: 0.05 },
+      },
+      openOcean: {
+        label: 'Open Ocean',
+        scene: { bg1: '#2a6fb0', bg2: '#06203f', light: '#c8e8ff', bubble: '#d8f0ff', speck: '#8ab8e0' },
+        rays: 0.8, snow: 0.15,
+        shapes: { torpedo: 6, slender: 2, deep: 1, round: 0.3, long: 0.3 },
+        tails: { lunate: 4, forked: 4, truncate: 0.5, pointed: 0.3, tentacles: 0.15 },
+        dorsals: { swept: 3, sail: 2, double: 2, spiny: 1, rounded: 0.5 },
+        patterns: { none: 3, hstripes: 2, bands: 1.5, spots: 1, split: 1 },
+        body: ['#2a4a7a', '#3a5a8a', '#1a3050', '#4a8a6a', '#5a6a8a', '#2a6a8a'],
+        pattern: ['#0a1830', '#e8f0f8', '#3ad0a0', '#e8d040'],
+        fin: ['#e8d040', '#2a4a7a', '#c8d0d8', '#3ad0a0'],
+        eye: ['#d8e8f8', '#e8d040', '#9ad8ff'],
+        glow: ['#5af0ff'],
+        mods: { lure: 0.1, photophore: 0.2, barbel: 0.1, teeth: 0.8, bigEye: 0.6, lips: 0, eldritch: 0.3 },
+      },
+      abyssalTrench: {
+        label: 'Abyssal Trench',
+        scene: { bg1: '#0d1430', bg2: '#020308', light: '#3a5aa0', bubble: '#6a8ad0', speck: '#7fa0d8' },
+        rays: 0, snow: 1,
+        shapes: { torpedo: 2, deep: 1.5, round: 3, long: 2.5, slender: 2 },
+        tails: { rounded: 3, pointed: 3, forked: 1, truncate: 1, lunate: 0.5, veil: 1, tentacles: 1 },
+        dorsals: { none: 2, rounded: 2, spiny: 2, long: 2, swept: 1, sail: 0.6, double: 0.5 },
+        patterns: { none: 4, spots: 2, reticulate: 1, split: 1, hstripes: 1, blotch: 0.5, bands: 0.5 },
+        body: ['#1a1624', '#2a1830', '#3a1a22', '#181c2a', '#3c3a48', '#4a1420', '#232a3c'],
+        pattern: ['#0a0a10', '#5a4a6a', '#2a3a5a', '#6a2a3a'],
+        fin: ['#2a2238', '#3a2a48', '#1e2a3a', '#5a1a2a'],
+        eye: ['#e8f6ff', '#9ad8ff', '#ff5a7a', '#d8ff6a'],
+        glow: ['#5af0ff', '#7aff9a', '#ff6ad8', '#ffd84a', '#6a9aff'],
+        mods: { lure: 1, photophore: 1, barbel: 0.6, teeth: 2.5, bigEye: 2.5, lips: 0, eldritch: 1 },
+      },
+      cosmicVoid: {
+        label: 'Cosmic Void',
+        scene: { bg1: '#1a0f2e', bg2: '#030108', light: '#7a4ad0', bubble: '#c8a0ff', speck: '#fff6d8' },
+        rays: 0, snow: 0, stars: 1, nebula: 1,
+        shapes: { torpedo: 1, deep: 1, round: 1, long: 1.5, slender: 1 },
+        tails: { tentacles: 3, veil: 2, pointed: 1, rounded: 1, lunate: 0.5 },
+        dorsals: { spiny: 2, sail: 2, long: 1, none: 1, swept: 1 },
+        patterns: { starry: 5, reticulate: 1, none: 1, split: 1 },
+        body: ['#0a0612', '#1a0f2e', '#2a1040', '#0f1a1a', '#3a0f2a', '#141022'],
+        pattern: ['#fff6d8', '#b07aff', '#7affd0', '#ff7ad8'],
+        fin: ['#3a1a5a', '#1a0f2e', '#5a2a7a', '#0f2a2a'],
+        eye: ['#d8ff6a', '#ff4a6a', '#ffffff', '#b07aff'],
+        glow: ['#b07aff', '#7affd0', '#ff7ad8', '#d8ff6a'],
+        mods: { lure: 0.6, photophore: 0.8, barbel: 0.3, teeth: 1.5, bigEye: 1.5, lips: 0, eldritch: 2 },
+      },
+    };
+    const FIRST_HABITAT = Object.keys(HABITATS)[0];
+
+    // Flat numeric knobs so the lab can bind each to one input.
+    const DEFAULT_FISH_CONFIG = {
+      patternChance: 0.8,
+      scaleChance: 0.4,
+      lateralLineChance: 0.35,
+      bigEyeChance: 0.2,
+      teethChance: 0.2,
+      barbelChance: 0.25,
+      lureChance: 0.45,
+      photophoreChance: 0.5,
+      spikeChance: 0.35,  // round bodies only (puffer spines)
+      faceRightChance: 0, // 0 = every fish faces left
+      bubbleChance: 0.5,
+      lightRays: 1,       // strength of the background light shafts
+      // Lovecraftian features — each is further scaled by the habitat's
+      // mods.eldritch (near zero in a pond, x2 in the Cosmic Void).
+      tentacleChance: 0.3,
+      extraEyeChance: 0.3,
+      mawChance: 0.25,
+      runeChance: 0.2,
+      auraChance: 0.3,
+      skeletalChance: 0.15,
+    };
+
+    // ---- feature roll ------------------------------------------------------
+    // Consume the rng in a FIXED order regardless of config, so knobs are local.
+    function rollFeatures(rng, habitat, cfg) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT], m = Hb.mods, f = {};
+      f.shape = pickW(rng, Hb.shapes);
+      const S = SHAPES[f.shape];
+      f.bodyLen = ri(rng, ...S.len);
+      f.bodyDepth = ri(rng, ...S.depth);
+      f.peak = ri(rng, ...S.peak);
+      f.headBlunt = ri(rng, ...S.blunt);
+      f.taper = ri(rng, ...S.taper);
+      f.backArch = ri(rng, ...S.arch);
+
+      f.tail = pickW(rng, Hb.tails);
+      const T = TAILS[f.tail];
+      f.tailLen = clamp(ri(rng, ...T.len), 3, 60 - f.bodyLen);
+      f.tailSpan = clamp(Math.round(f.bodyDepth * lerp(T.span[0], T.span[1], rng())), 2, 20);
+
+      f.dorsal = pickW(rng, Hb.dorsals);
+      const dH = ri(rng, 3, 8);
+      f.dorsalH = f.dorsal === 'sail' ? dH + 3 : f.dorsal === 'long' ? Math.ceil(dH * 0.6) : dH;
+      f.dorsalStart = ri(rng, 25, 40);
+      f.dorsalEnd = ri(rng, 62, 85);
+      f.dorsalLean = ri(rng, 0, 6);
+      const anal = pickW(rng, { rounded: 3, swept: 2, long: 1, none: 0.6 });
+      f.anal = f.dorsal === 'long' ? 'long' : anal; // an eel's fins run together
+      f.analH = ri(rng, 2, 6);
+      f.analStart = ri(rng, 55, 68);
+      f.analEnd = ri(rng, 78, 92);
+      // Keep the fin stack inside the 48px frame.
+      const room = FISH_H - 4 - f.bodyDepth;
+      f.dorsalH = clamp(f.dorsalH, 0, Math.max(1, room - f.analH));
+      f.pelvic = rng() < 0.75;
+      f.pectoral = ri(rng, 3, 6);
+      f.finAlpha = ri(rng, 70, 95);
+
+      const big = rng() < cfg.bigEyeChance * m.bigEye, bigAmt = ri(rng, 1, 2);
+      f.eyeR = clamp(clamp(Math.round(f.bodyDepth / 9), 1, 3) + (big ? bigAmt : 0), 1, 5);
+      f.eyeColor = pick(rng, Hb.eye);
+      f.mouth = pickW(rng, { terminal: 4, up: 1.5, down: 1.5 });
+      f.mouthW = ri(rng, 2, 4);
+      f.lips = rng() < 0.15 * m.lips;
+      f.teeth = rng() < cfg.teethChance * m.teeth;
+      const hasBarbels = rng() < cfg.barbelChance * m.barbel, pairs = ri(rng, 1, 2);
+      f.barbels = hasBarbels ? pairs : 0;
+      f.barbelLen = ri(rng, 3, 8);
+      f.lure = rng() < cfg.lureChance * m.lure;
+      f.photophores = rng() < cfg.photophoreChance * m.photophore;
+      f.glowColor = pick(rng, Hb.glow);
+      const spikes = rng() < cfg.spikeChance;
+      f.spikes = f.shape === 'round' && spikes;
+
+      f.backColor = pick(rng, Hb.body);
+      const bellyPick = pick(rng, Hb.body), bellyMode = rng();
+      const back = hx(f.backColor);
+      f.bellyColor = bellyMode < 0.55 ? toHex(mix(back, [242, 239, 228], 0.55))
+        : bellyMode < 0.8 ? toHex(mix(back, [255, 255, 255], 0.2)) : bellyPick;
+      const finPick = pick(rng, Hb.fin);
+      f.finColor = rng() < 0.45 ? toHex(mix(back, [255, 255, 255], 0.15)) : finPick;
+      const pi = Math.floor(rng() * Hb.pattern.length);
+      f.patternColor = Hb.pattern[Hb.pattern[pi] === f.backColor ? (pi + 1) % Hb.pattern.length : pi];
+      const patterned = rng() < cfg.patternChance, pat = pickW(rng, Hb.patterns);
+      f.pattern = patterned ? pat : 'none';
+      f.patternCount = ri(rng, 1, 5);
+      f.patternSeed = ri(rng, 0, 999);
+      f.scales = rng() < cfg.scaleChance;
+      f.lateralLine = rng() < cfg.lateralLineChance;
+      f.faceRight = rng() < cfg.faceRightChance;
+
+      // Eldritch traits, rolled last so they never disturb the ordinary ones.
+      const ek = m.eldritch ?? 0;
+      const tent = rng() < cfg.tentacleChance * ek, tentN = ri(rng, 2, 5);
+      f.tentacles = tent ? tentN : 0;
+      f.tentacleLen = ri(rng, 6, 13);
+      const eyes = rng() < cfg.extraEyeChance * ek, eyeN = ri(rng, 2, 7);
+      f.extraEyes = eyes ? eyeN : 0;
+      f.maw = rng() < cfg.mawChance * ek;
+      f.runes = rng() < cfg.runeChance * ek;
+      f.aura = rng() < cfg.auraChance * ek;
+      f.skeletal = rng() < cfg.skeletalChance * ek;
+      f.eldritchColor = pick(rng, ELDRITCH);
+      return f;
+    }
+
+    // Reset the body knobs to a shape preset's midpoints (creator "Shape" field).
+    function applyShapePreset(f, shape) {
+      const S = SHAPES[shape], mid = ([a, b]) => Math.round((a + b) / 2);
+      Object.assign(f, { shape, bodyLen: mid(S.len), bodyDepth: mid(S.depth), peak: mid(S.peak),
+        headBlunt: mid(S.blunt), taper: mid(S.taper), backArch: mid(S.arch) });
+      f.tailLen = clamp(f.tailLen, 3, 60 - f.bodyLen);
+    }
+
+    // ---- geometry ----------------------------------------------------------
+    // Head on the LEFT; faceRight mirrors at composite time.
+    const BLUNT = [0.3, 0.45, 0.6, 0.8, 1.0];
+    function makeGeom(f) {
+      const L = f.bodyLen, D = f.bodyDepth;
+      const tailLen = clamp(f.tailLen, 0, FISH_W - 2 - L);
+      const x0 = Math.floor((FISH_W - (L + tailLen)) / 2);
+      const up = f.backArch / 100, peak = clamp(f.peak / 100, 0.05, 0.95), taper = f.taper / 100;
+      const e = BLUNT[clamp(f.headBlunt, 1, 5) - 1];
+      const finUp = f.dorsal === 'none' ? 0 : f.dorsalH, finDn = f.anal === 'none' ? 0 : f.analH;
+      // Centre the whole silhouette (fins included) vertically.
+      const cy = Math.round(FISH_H / 2 + (D * up + finUp - D * (1 - up) - finDn) / 2);
+      const half = (s) => (s < peak
+        ? Math.pow(Math.sin((Math.PI / 2) * (s / peak)), e)
+        : taper + (1 - taper) * Math.pow(Math.cos((Math.PI / 2) * ((s - peak) / (1 - peak))), 1.1));
+      const top = [], bot = [];
+      for (let x = x0; x < x0 + L; x++) {
+        const d = half((x - x0 + 0.5) / L);
+        top[x] = Math.round(cy - D * up * d);
+        bot[x] = Math.max(top[x], Math.round(cy + D * (1 - up) * d));
+      }
+      const xp = x0 + L;
+      const headLen = clamp(Math.round(Math.min(L * 0.27, D * 0.9 + 3)), 4, 12);
+      return { L, D, x0, xp, cy, top, bot, tailLen, headLen, pedTop: top[xp - 1], pedBot: bot[xp - 1] };
+    }
+    const sAt = (G, x) => (x - G.x0 + 0.5) / G.L;
+
+    // ---- body --------------------------------------------------------------
+    function patternAt(f, G, x, y, s, v, pat, back) {
+      const n = f.patternCount, seed = f.patternSeed;
+      switch (f.pattern) {
+        case 'bands': { // vertical bars, bowed like a clownfish's
+          const w = Math.max(1, Math.round(G.L / (n * 5 + 2)));
+          const bow = Math.round((v - 0.5) * (v - 0.5) * 4);
+          for (let i = 0; i < n; i++) {
+            const bx = G.x0 + Math.round(G.L * (n === 1 ? 0.36 : lerp(0.2, 0.82, i / (n - 1)))) - bow;
+            const d = Math.abs(x - bx);
+            if (d < w) return [pat, 1];
+            if (d === w && luma(pat) > 170) return [sh(back, 0.35), 0.9]; // dark rim on pale bands
+          }
+          return null;
+        }
+        case 'hstripes': {
+          const th = G.bot[x] - G.top[x] > 14 ? 1 : 0.5;
+          for (let i = 0; i < Math.min(n, 4); i++) {
+            if (Math.abs(y - lerp(G.top[x], G.bot[x], (i + 1) / (Math.min(n, 4) + 1))) <= th) return [pat, 0.9];
+          }
+          return null;
+        }
+        case 'spots': {
+          if (v > 0.9) return null;
+          const cs = 3, cx = Math.floor(x / cs), cyc = Math.floor(y / cs);
+          if (hash(cx + seed, cyc) < 0.66 - n * 0.05) return null;
+          const sx = cx * cs + Math.floor(hash(cx, cyc + seed) * 2), sy = cyc * cs + Math.floor(hash(cyc, cx - seed) * 2);
+          return x === sx && y === sy ? [pat, 1] : null;
+        }
+        case 'blotch': // koi-style patches
+          return noise((x + seed * 7) / (4 + n), (y + seed * 3) / (3 + n * 0.5)) > 0.55 ? [pat, 1] : null;
+        case 'reticulate': { // broken net
+          const gx = (x + seed) % 4 === 0, gy = (y + (Math.floor((x + seed) / 4) & 1) * 2) % 4 === 0;
+          return (gx || gy) && hash(x, y + seed) > 0.25 ? [pat, 0.75] : null;
+        }
+        case 'split': { // two-tone, front portion in the pattern colour
+          const edge = G.L * (0.25 + n * 0.08) + (hash(y, seed) > 0.5 ? 1 : 0);
+          return x - G.x0 + v * 3 < edge ? [pat, 1] : null;
+        }
+        case 'starry': { // a little night sky under the skin
+          const h = hash(x * 3 + seed, y * 7 - seed);
+          return h > 0.97 - n * 0.012 ? [pat, h > 0.985 ? 1 : 0.55] : null;
+        }
+        default: return null;
+      }
+    }
+
+    function drawBody(R, f, G) {
+      const back = hx(f.backColor), belly = hx(f.bellyColor), pat = hx(f.patternColor);
+      for (let x = G.x0; x < G.xp; x++) {
+        const t = G.top[x], b = G.bot[x], hgt = Math.max(1, b - t), s = sAt(G, x);
+        const latY = Math.round(lerp(t, b, 0.38));
+        for (let y = t; y <= b; y++) {
+          const v = (y - t) / hgt;
+          let c = mix(back, belly, smooth(0.3, 0.75, v)); // countershading
+          const p = patternAt(f, G, x, y, s, v, pat, back);
+          if (p) c = mix(c, p[0], p[1]);
+          if (f.scales && v < 0.85 && s > 0.2 && y % 3 === 0 && (x + ((y / 3) & 1) * 2) % 4 === 0) c = sh(c, 0.86);
+          if (f.lateralLine && s > 0.22 && s < 0.97 && y === latY && (x & 1)) c = sh(c, 0.78);
+          if (y === t + 1 && hgt > 3) c = sh(c, 1.12);
+          if (v > 0.88 && hgt > 4) c = sh(c, 0.88);
+          if (f.skeletal) { // ghost flesh: pale, see-through, bones showing
+            c = mix(c, [210, 225, 230], 0.4);
+            const spine = y === latY + 1 && s > 0.18 && s < 0.98;
+            const rib = (x - G.x0) % 3 === 0 && s > 0.3 && s < 0.78 && y > t + 1 && y < b - 1;
+            if (spine || rib) c = BONE;
+            plot(R, x, y, c, spine || rib ? 0.95 : 0.72);
+          } else plot(R, x, y, c);
+        }
+      }
+    }
+
+    // ---- fins (drawn behind the body) --------------------------------------
+    function finHeight(style, t, x, H) {
+      switch (style) {
+        case 'rounded': return H * Math.pow(Math.sin(Math.PI * t), 0.6);
+        case 'swept':   return H * (t < 0.3 ? t / 0.3 : Math.pow(1 - (t - 0.3) / 0.7, 1.3));
+        case 'spiny':   return H * Math.pow(Math.sin(Math.PI * t), 0.5) * (x % 3 === 0 ? 1 : 0.6);
+        case 'sail':    return H * Math.pow(Math.sin(Math.PI * (0.08 + 0.9 * t)), 0.35);
+        case 'long':    return H * Math.min(1, t / 0.06);
+        default: return 0;
+      }
+    }
+    // One fin along the back (dir -1) or belly (dir +1); leans toward the tail.
+    function drawEdgeFin(R, f, G, style, s0, s1, H, dir, lean) {
+      const fin = hx(f.finColor), a = f.finAlpha / 100;
+      const xa = G.x0 + Math.round(G.L * s0), xb = Math.min(G.xp - 1, G.x0 + Math.round(G.L * s1));
+      for (let x = xa; x <= xb; x++) {
+        const t = (x - xa) / Math.max(1, xb - xa), h = Math.round(finHeight(style, t, x, H));
+        const base = dir < 0 ? G.top[x] : G.bot[x];
+        const c = x % 2 === 0 ? sh(fin, 0.82) : fin; // rays
+        for (let j = 0; j <= h; j++) plot(R, x + Math.round(j * lean), base + dir * j, c, a);
+      }
+    }
+    function drawDorsal(R, f, G) {
+      if (f.dorsal === 'none' || f.dorsalH <= 0) return;
+      const s0 = f.dorsalStart / 100, s1 = f.dorsalEnd / 100, lean = f.dorsalLean / 10;
+      if (f.dorsal === 'double') {
+        const m = lerp(s0, s1, 0.5);
+        drawEdgeFin(R, f, G, 'spiny', s0, m - 0.04, f.dorsalH, -1, lean);
+        drawEdgeFin(R, f, G, 'rounded', m + 0.04, s1, Math.ceil(f.dorsalH * 0.75), -1, lean);
+      } else {
+        drawEdgeFin(R, f, G, f.dorsal, s0, f.dorsal === 'long' ? 1 : s1, f.dorsalH, -1, lean);
+      }
+    }
+    function drawAnal(R, f, G) {
+      if (f.anal === 'none' || f.analH <= 0) return;
+      const s0 = f.anal === 'long' ? 0.45 : f.analStart / 100, s1 = f.anal === 'long' ? 1 : f.analEnd / 100;
+      drawEdgeFin(R, f, G, f.anal, s0, s1, f.analH, 1, f.dorsalLean / 12);
+    }
+    function drawPelvic(R, f, G) {
+      if (!f.pelvic) return;
+      const fin = hx(f.finColor), a = f.finAlpha / 100;
+      const px = G.x0 + Math.round(G.L * 0.36), by = G.bot[px], len = clamp(Math.round(G.D / 5), 2, 4);
+      for (let j = 0; j < len; j++) { plot(R, px + j, by + j + 1, fin, a); plot(R, px + j + 1, by + j + 1, sh(fin, 0.82), a); }
+    }
+    function tailOuter(style, t, ped, S) {
+      switch (style) {
+        case 'forked':   return [lerp(ped, S, Math.pow(t, 0.8)), t > 0.5 ? S * 0.9 * Math.pow((t - 0.5) / 0.5, 1.2) : 0];
+        case 'lunate':   return [lerp(ped, S, Math.sqrt(t)), t > 0.3 ? S * 0.95 * Math.pow((t - 0.3) / 0.7, 0.7) : 0];
+        case 'truncate': return [lerp(ped, S, Math.min(1, t * 1.2)), 0];
+        case 'rounded': {
+          const cap = t > 0.5 ? Math.sqrt(Math.max(0, 1 - ((t - 0.5) / 0.5) ** 2)) : 1;
+          return [lerp(ped, S, Math.min(1, t / 0.5)) * cap, 0];
+        }
+        case 'pointed':  return [ped * (1 - t) + S * 0.4 * Math.sin(Math.PI * t), 0];
+        case 'veil':     return [lerp(ped, S * 1.15, Math.pow(t, 0.55)), 0];
+        default:         return [ped, 0];
+      }
+    }
+    // A curling arm: thick at the root with pale suckers, thin and coiling at
+    // the tip. `ang` is the reach direction (0 = toward the tail, PI/2 = down).
+    function tentacle(R, ox, oy, ang, len, c, phase, time) {
+      const dx = Math.cos(ang), dy = Math.sin(ang), px = -dy, py = dx;
+      const under = sh(c, 0.7), sucker = mix(c, [255, 222, 222], 0.5);
+      const ux = Math.round(px), uy = Math.round(py);
+      for (let k = 0; k <= len; k++) {
+        const t = k / len;
+        const wob = Math.sin(k * 0.55 + phase + time * 3) * Math.min(2, k * 0.3) + t * t * 2.5; // sway + tip curl
+        const x = Math.round(ox + dx * k + px * wob), y = Math.round(oy + dy * k + py * wob);
+        plot(R, x, y, c);
+        if (t < 0.55) plot(R, x + ux, y + uy, k % 3 === 1 ? sucker : under);
+      }
+    }
+    function drawTail(R, f, G, anim) {
+      if (G.tailLen <= 0) return;
+      const fin = hx(f.finColor), a = f.finAlpha / 100;
+      const ped = Math.max(1, (G.pedBot - G.pedTop) / 2), cyp = Math.round((G.pedTop + G.pedBot) / 2);
+      if (f.tail === 'tentacles') {
+        const n = f.tailSpan > 8 ? 4 : 3, time = anim ? anim.time : 0;
+        for (let j = 0; j < n; j++) {
+          const u = n === 1 ? 0 : j / (n - 1) - 0.5; // -0.5 .. 0.5 across the fan
+          tentacle(R, G.xp - 1, cyp + Math.round(u * ped * 2), u * (0.4 + f.tailSpan * 0.06), G.tailLen + (j % 2) * 2, fin, j * 1.9 + f.patternSeed, time);
+        }
+        return;
+      }
+      const beat = anim ? anim.tail : 0;
+      const S = f.tailSpan * (1 - 0.3 * Math.abs(beat)); // foreshortens as it sweeps
+      for (let i = -1; i < G.tailLen; i++) {
+        const t = Math.max(0, (i + 0.5) / G.tailLen), x = G.xp + i;
+        const [outer, inner] = tailOuter(f.tail, t, ped, S);
+        const droop = f.tail === 'veil' ? Math.round(t * t * S * 0.45) : 0;
+        const yc = cyp + droop + Math.round(beat * t * 2);
+        const fa = f.tail === 'veil' ? a * (1 - 0.35 * t) : a;
+        for (let dy = -Math.ceil(outer); dy <= Math.ceil(outer); dy++) {
+          const ad = Math.abs(dy);
+          if (ad > outer + 0.25 || (inner > 0 && ad < inner)) continue;
+          if (f.tail === 'veil' && t > 0.7 && hash(x, dy + f.patternSeed) > 0.78) continue; // ragged hem
+          const ray = Math.floor(Math.atan2(dy, i + 3) * 5 + 50) % 2 === 0;
+          plot(R, x, yc + dy, ray ? sh(fin, 0.84) : fin, fa);
+        }
+      }
+    }
+
+    // ---- head + extras (drawn over the body) -------------------------------
+    function mouthPoint(f, G) {
+      const mid = Math.round((G.top[G.x0] + G.bot[G.x0]) / 2);
+      const my = f.mouth === 'up' ? mid - Math.max(1, Math.round(G.D * 0.12))
+        : f.mouth === 'down' ? mid + Math.max(1, Math.round(G.D * 0.15)) : mid;
+      let mx = G.x0;
+      while (mx < G.x0 + G.headLen && !(G.top[mx] <= my && my <= G.bot[mx])) mx++;
+      return [mx, my];
+    }
+    function drawHead(R, f, G, anim) {
+      const back = hx(f.backColor), belly = hx(f.bellyColor);
+      // gill cover
+      const gx = G.x0 + G.headLen, gt = G.top[gx], gb = G.bot[gx];
+      if (gt !== undefined && gb - gt > 4) {
+        const mid = (gt + gb) / 2, half = (gb - gt) / 2;
+        for (let y = gt + 2; y <= gb - 2; y++) darken(R, gx - Math.round(((y - mid) / half) ** 2 * 2), y, 0.72);
+      }
+      // mouth (before the eye, so a wide maw never paints over it)
+      const [mx, my] = mouthPoint(f, G);
+      if (f.maw) drawMaw(R, f, G, mx, my, anim);
+      else {
+        const w = f.mouthW + (f.teeth ? 2 : 0);
+        for (let i = 0; i < w; i++) {
+          const dy = f.mouth === 'up' ? Math.floor(i / 2) : f.mouth === 'down' ? -Math.floor(i / 2) : 0;
+          plot(R, mx + i, my + dy, MOUTH);
+          if (f.teeth && i < w - 1) plot(R, mx + i, my + dy + (i % 2 ? 1 : -1), WHITE);
+        }
+        if (anim?.gulp) { plot(R, mx - 1, my, MOUTH); plot(R, mx, my + 1, MOUTH); plot(R, mx + 1, my + 1, MOUTH); }
+      }
+      // eye
+      const [ex, ey] = eyePoint(G);
+      const r = Math.min(f.eyeR, Math.max(1, Math.floor((G.bot[ex] - G.top[ex]) / 2)));
+      const iris = hx(f.eyeColor);
+      if (r === 1) { plot(R, ex, ey, PUPIL); plot(R, ex + 1, ey, iris); plot(R, ex, ey - 1, iris); }
+      else {
+        disc(R, ex, ey, r, sh(back, 0.45));
+        disc(R, ex, ey, r - 1, iris);
+        const pr = Math.round((r - 1) * 0.55), pcx = ex - (r >= 3 ? 1 : 0);
+        disc(R, pcx, ey, pr, PUPIL);
+        if (r >= 3) plot(R, pcx - 1, ey - 1, WHITE);
+      }
+      if (f.lips && !f.maw) {
+        const lip = mix(back, [255, 170, 150], 0.55);
+        plot(R, mx - 1, my, lip); plot(R, mx, my - 1, lip); plot(R, mx, my + 1, lip);
+      }
+      // barbels (whiskers) — sway with the water when animated
+      const bc = sh(mix(back, belly, 0.5), 0.8), sway = anim ? anim.time * 2 : 0;
+      for (let p = 0; p < f.barbels; p++) {
+        for (let k = 1; k <= f.barbelLen; k++) {
+          const wob = anim ? Math.round(Math.sin(sway + k * 0.4 + p) * (k / f.barbelLen)) : 0;
+          if (p === 0) plot(R, mx + 1 + Math.round(k * 0.35) + wob, my + 1 + Math.round(k * 0.7), bc);
+          else plot(R, mx - Math.round(k * 0.5) + wob, my + Math.round(k * 0.45), bc);
+        }
+      }
+      // chin tentacles hang from under the head
+      if (f.tentacles > 0) {
+        const flesh = mix(mix(back, belly, 0.5), hx(f.eldritchColor), 0.2), time = anim ? anim.time : 0;
+        const span = G.headLen + 2;
+        for (let i = 0; i < f.tentacles; i++) {
+          const ox = G.x0 + 2 + Math.round((f.tentacles === 1 ? 0.5 : i / (f.tentacles - 1)) * span);
+          if (G.bot[ox] === undefined) continue;
+          tentacle(R, ox, G.bot[ox], 1.25 - i * 0.1, f.tentacleLen - (i % 2) * 2, flesh, i * 1.7 + f.patternSeed, time);
+        }
+      }
+    }
+    const eyePoint = (G) => {
+      const ex = G.x0 + Math.max(2, Math.round(G.headLen * 0.42));
+      return [ex, Math.round(lerp(G.top[ex], G.bot[ex], 0.36))];
+    };
+    // A gaping wedge of a mouth lined with needle teeth, cut into the head.
+    function drawMaw(R, f, G, mx, my, anim) {
+      const len = Math.max(4, G.headLen + 1);
+      const gape = Math.max(2, Math.round(G.D * 0.28)) + (anim?.gulp ? 1 : 0);
+      for (let i = 0; i <= len; i++) {
+        const x = mx + i, half = Math.round((1 - i / len) * gape);
+        if (G.top[x] === undefined) continue;
+        for (let dy = -half; dy <= half; dy++) {
+          const y = my + dy;
+          if (y > G.top[x] && y < G.bot[x]) plot(R, x, y, mix(GULLET, PUPIL, i / len));
+        }
+        if (i % 2 === 0 && i < len - 1 && half > 0) { // teeth on both jaws, fangs at the front
+          plot(R, x, my - half, WHITE); plot(R, x, my + half, WHITE);
+          if (i === 0) { plot(R, x, my - half + 1, WHITE); plot(R, x, my + half - 1, WHITE); }
+        }
+      }
+    }
+    function drawPectoral(R, f, G, anim) {
+      if (f.pectoral <= 0) return;
+      const fin = hx(f.finColor), a = (f.finAlpha / 100) * 0.8;
+      const ax = G.x0 + G.headLen + 1;
+      if (G.top[ax] === undefined) return;
+      const ay = Math.round(lerp(G.top[ax], G.bot[ax], 0.58));
+      const flap = anim ? anim.pect : 0, len = f.pectoral + Math.round(flap * 0.8);
+      const lo = 0.1 + flap * 0.15, hi = 0.85 + flap * 0.1;
+      for (let dy = -len; dy <= len; dy++) for (let dx = 0; dx <= len; dx++) {
+        const d = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+        if (d > len || ang < lo || ang > hi) continue;
+        const c = d > len - 1 ? sh(fin, 0.65) : Math.floor(ang * 7) % 2 ? sh(fin, 0.85) : fin;
+        plot(R, ax + dx, ay + dy, c, a);
+      }
+    }
+    function drawExtras(R, f, G, anim) {
+      const back = hx(f.backColor), glow = hx(f.glowColor), pulse = anim ? anim.glow : 1;
+      if (f.spikes) {
+        const sc = sh(back, 0.55);
+        for (let x = G.x0 + 3; x < G.xp - 3; x += 3) { plot(R, x, G.top[x] - 1, sc); plot(R, x + 1, G.bot[x] + 1, sc); }
+      }
+      if (f.photophores) {
+        for (let x = G.x0 + Math.round(G.L * 0.25); x < G.x0 + G.L * 0.9; x += 3) {
+          if (G.bot[x] - G.top[x] < 5) continue;
+          const y = G.bot[x] - 2;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) plot(R, x + dx, y + dy, glow, 0.25 * pulse);
+          plot(R, x, y, glow, 0.6 + 0.4 * pulse);
+        }
+      }
+      if (f.lure) { // anglerfish illicium: a stalk off the forehead, glowing bulb
+        const bx = G.x0 + Math.round(G.headLen * 0.7), by = G.top[bx];
+        const tx = Math.max(1, G.x0 - 2), ty = Math.max(2, by - 8), cx = bx + 2, cyy = ty - 2;
+        const stalk = mix(back, glow, 0.25);
+        for (let i = 0; i <= 20; i++) {
+          const t = i / 20, u = 1 - t;
+          plot(R, Math.round(u * u * bx + 2 * u * t * cx + t * t * tx), Math.round(u * u * by + 2 * u * t * cyy + t * t * ty), stalk);
+        }
+        disc(R, tx, ty, 2, glow, 0.3 * pulse);
+        disc(R, tx, ty, 1, glow);
+        plot(R, tx, ty, WHITE);
+      }
+      const eld = hx(f.eldritchColor), seed = f.patternSeed, time = anim ? anim.time : 0;
+      if (f.runes) { // glowing glyphs carved down the flank
+        const n = clamp(Math.floor(G.L / 12), 2, 4);
+        for (let i = 0; i < n; i++) {
+          const x = G.x0 + Math.round(G.L * lerp(0.38, 0.85, i / (n - 1))) - 1;
+          if (G.top[x + 1] === undefined || G.bot[x + 1] - G.top[x + 1] < 7) continue;
+          const y = Math.round((G.top[x + 1] + G.bot[x + 1]) / 2) - 1;
+          const glyph = GLYPHS[Math.floor(hash(i, seed) * GLYPHS.length)];
+          for (let gy = 0; gy < 3; gy++) for (let gx = 0; gx < 3; gx++) {
+            if (!glyph[gy][gx]) continue;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) plot(R, x + gx + dx, y + gy + dy, eld, 0.12 * pulse);
+            plot(R, x + gx, y + gy, eld, 0.55 + 0.45 * pulse);
+          }
+        }
+      }
+      if (f.extraEyes > 0) { // eyes where no eyes should be, each blinking on its own clock
+        const [mex, mey] = eyePoint(G), lid = sh(back, 0.55);
+        for (let i = 0; i < f.extraEyes; i++) {
+          const x = G.x0 + Math.round(G.L * (0.3 + 0.62 * hash(i * 13 + seed, 7)));
+          if (G.top[x] === undefined || G.bot[x] - G.top[x] < 5) continue;
+          const y = Math.round(lerp(G.top[x], G.bot[x], 0.22 + 0.56 * hash(seed, i * 31 + 3)));
+          if (Math.abs(x - mex) < 4 && Math.abs(y - mey) < 4) continue;
+          const big = G.bot[x] - G.top[x] > 14 && hash(i, seed) > 0.6;
+          if (anim && Math.sin(time * 1.3 + i * 2.1) > 0.96) { hLine3(R, x, y, lid); continue; }
+          const iris = i % 2 ? eld : hx(f.eyeColor); // mismatched
+          if (big) {
+            disc(R, x, y, 2, sh(back, 0.4)); disc(R, x, y, 1, iris);
+            plot(R, x, y, PUPIL); plot(R, x, y - 1, PUPIL); plot(R, x - 1, y - 1, WHITE);
+          } else {
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) plot(R, x + dx, y + dy, dx && dy ? sh(back, 0.55) : iris);
+            plot(R, x, y, PUPIL);
+          }
+        }
+      }
+    }
+    const hLine3 = (R, x, y, c) => { plot(R, x - 1, y, c); plot(R, x, y, c); plot(R, x + 1, y, c); };
+    const GLYPHS = [
+      [[1, 0, 1], [0, 1, 0], [1, 0, 1]], [[1, 1, 1], [0, 1, 0], [0, 1, 0]], [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+      [[1, 0, 0], [1, 1, 1], [0, 0, 1]], [[1, 1, 0], [0, 1, 0], [0, 1, 1]], [[1, 0, 1], [1, 1, 1], [1, 0, 1]],
+      [[0, 1, 0], [1, 0, 1], [0, 1, 0]], [[1, 1, 1], [1, 0, 1], [0, 0, 1]],
+    ];
+    // Wispy halo hugging the silhouette — a fish that is not entirely here.
+    function voidAura(fish, f, anim) {
+      const R = raster(), eld = hx(f.eldritchColor), pulse = anim ? anim.glow : 1, tick = anim ? Math.floor(anim.time * 6) : 0;
+      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && fish[(y * FISH_W + x) * 4 + 3] >= 128;
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+        if (solid(x, y)) continue;
+        let a = 0;
+        for (let dy = -1; dy <= 1 && !a; dy++) for (let dx = -1; dx <= 1; dx++) if (solid(x + dx, y + dy)) { a = 0.6; break; }
+        if (!a && (solid(x + 2, y) || solid(x - 2, y) || solid(x, y + 2) || solid(x, y - 2))) a = 0.22;
+        if (a) plot(R, x, y, eld, a * pulse * (0.55 + 0.45 * hash(x + tick, y - tick)));
+      }
+      over(R, fish);
+      return R;
+    }
+
+    // ---- mutation effects --------------------------------------------------
+    // Rare morphs that only appear through breeding (or the creator). A fish
+    // carries up to MAX_EFFECTS of them in `f.effects`; each one is a colour
+    // remap of the feature object, a raster pass over the finished fish, or
+    // both. Array order never matters: every pass runs in a fixed order.
+    const EFFECTS = {
+      shiny:   { label: 'Shiny',   icon: '✨', weight: 4 },   // alternate hues + sparkles
+      glowing: { label: 'Glowing', icon: '💡', weight: 3 },   // pulsing halo
+      golden:  { label: 'Golden',  icon: '🥇', weight: 1.5 }, // metal ramp + sheen
+      albino:  { label: 'Albino',  icon: '🤍', weight: 2 },   // pale flesh, red eyes
+      frozen:  { label: 'Frozen',  icon: '❄️', weight: 3 },   // icy tint, rime, icicles, slow swim
+      spotted: { label: 'Spotted', icon: '🐆', weight: 5 },   // rosette coat over the pattern
+      crystal: { label: 'Crystal', icon: '💎', weight: 1 },   // glassy facets
+    };
+    const EFFECT_KEYS = Object.keys(EFFECTS);
+    const MAX_EFFECTS = 3;
+    // Chance of one more fresh effect given how many the child already has
+    // (inherited ones count): effectChance for the first, then these flat
+    // rates for the 2nd and 3rd. At the default 0.15 that's ~15% / 3% / 0.24%.
+    const EFFECT_STACK = [0.2, 0.08];
+    const RARITY = [
+      { name: 'Common', color: null }, { name: 'Rare', color: '#5fa8ff' },
+      { name: 'Epic', color: '#c07aff' }, { name: 'Legendary', color: '#ffb02e' },
+    ];
+    const hasFx = (f, k) => Array.isArray(f.effects) && f.effects.includes(k);
+    const fxList = (f) => EFFECT_KEYS.filter((k) => hasFx(f, k));
+
+    // Hue rotation in YIQ space keeps brightness, so outlines still read.
+    function hueShift(c, deg) {
+      const y = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+      const i = 0.596 * c[0] - 0.274 * c[1] - 0.322 * c[2], q = 0.211 * c[0] - 0.523 * c[1] + 0.312 * c[2];
+      const a = deg * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
+      const i2 = (i * cs - q * sn) * 1.3, q2 = (i * sn + q * cs) * 1.3; // and a saturation kick
+      return [y + 0.956 * i2 + 0.621 * q2, y - 0.272 * i2 - 0.647 * q2, y - 1.106 * i2 + 1.703 * q2].map((v) => clamp(v, 0, 255));
+    }
+    const BODY_COLOURS = ['backColor', 'bellyColor', 'finColor', 'patternColor'];
+    // Colour-level effects, applied to a copy of the features before drawing.
+    function effectColours(f) {
+      if (!fxList(f).length) return f;
+      const g = { ...f };
+      const remap = (fn) => { for (const k of BODY_COLOURS) if (g[k]) g[k] = toHex(fn(hx(g[k]), k)); };
+      if (hasFx(f, 'shiny')) { const deg = 90 + ((f.patternSeed * 37) % 180); remap((c) => hueShift(c, deg)); g.eyeColor = toHex(hueShift(hx(g.eyeColor), deg)); }
+      if (hasFx(f, 'albino')) {
+        remap((c, k) => mix(c, k === 'patternColor' ? [236, 196, 196] : [255, 238, 232], k === 'patternColor' ? 0.7 : 0.84));
+        g.eyeColor = '#e0304a';
+      }
+      if (hasFx(f, 'golden')) remap((c) => mix([118, 70, 10], [255, 228, 124], clamp(luma(c) / 255 * 1.1 + 0.12, 0, 1)));
+      if (hasFx(f, 'frozen')) { remap((c) => mix(c, [178, 224, 255], 0.5)); g.glowColor = '#bff4ff'; }
+      return g;
+    }
+
+    const solidIn = (R) => (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= 128;
+    function bbox(R) {
+      let x0 = FISH_W, y0 = FISH_H, x1 = -1, y1 = -1;
+      const solid = solidIn(R);
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) if (solid(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      return { x0, y0, x1, y1, ok: x1 >= 0 };
+    }
+    function sparkle(R, x, y, size, c, a) {
+      plot(R, x, y, c, a);
+      for (let k = 1; k <= size; k++) {
+        const fa = a * (1 - k / (size + 1));
+        plot(R, x + k, y, c, fa); plot(R, x - k, y, c, fa); plot(R, x, y + k, c, fa); plot(R, x, y - k, c, fa);
+      }
+    }
+
+    // Spotted: a leopard coat of dots and rosettes, on the body layer only
+    // (before the outline, under the head and eye).
+    function spotCoat(R, f) {
+      const b = bbox(R); if (!b.ok) return;
+      const solid = solidIn(R), rng = makePRNG(`spots|${f.patternSeed}`);
+      const base = hx(f.backColor), dark = luma(base) > 100;
+      const ink = dark ? sh(base, 0.28) : mix(base, [255, 246, 220], 0.8), core = mix(base, ink, 0.35);
+      const n = Math.round((b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1) / 26);
+      for (let i = 0; i < n; i++) {
+        const x = ri(rng, b.x0, b.x1), y = ri(rng, b.y0, b.y1), kind = rng();
+        if (!solid(x, y)) continue;
+        const dot = (px, py, c) => { if (solid(px, py)) plot(R, px, py, c); };
+        if (kind < 0.4) { // rosette: broken ring round a tinted core
+          for (const [dx, dy] of [[-1, -1], [0, -1], [1, 0], [1, 1], [-1, 1], [-1, 0]]) dot(x + dx, y + dy, ink);
+          dot(x, y, core);
+        } else if (kind < 0.75) { dot(x, y, ink); dot(x + 1, y, ink); }
+        else dot(x, y, ink);
+      }
+    }
+
+    // Crystal: Voronoi facets, each with its own brightness and a prismatic
+    // nudge, bright seams, slightly see-through, and a glint that sweeps by.
+    function crystalize(F, f, anim) {
+      const b = bbox(F); if (!b.ok) return;
+      const solid = solidIn(F), rng = makePRNG(`crystal|${f.patternSeed}`);
+      const pts = Array.from({ length: 12 }, () => [ri(rng, b.x0, b.x1), ri(rng, b.y0, b.y1)]);
+      const sweep = anim ? ((anim.time * 22) % (FISH_W + 40)) - 20 : b.x0 + (b.x1 - b.x0) * 0.35;
+      const tint = [196, 238, 255], ice = [250, 254, 255];
+      for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+        if (!solid(x, y)) continue;
+        let d1 = 1e9, d2 = 1e9, cell = 0;
+        pts.forEach(([px, py], k) => { const d = Math.hypot(x - px, y - py); if (d < d1) { d2 = d1; d1 = d; cell = k; } else if (d < d2) d2 = d; });
+        const i = (y * FISH_W + x) * 4;
+        let c = mix([F[i], F[i + 1], F[i + 2]], tint, 0.4);
+        c = hueShift(sh(c, 0.82 + 0.4 * hash(cell, 5)), (cell % 3 - 1) * 25);
+        const seam = d2 - d1 < 1.1, glint = Math.abs(x - y * 0.6 - sweep) < 1.5;
+        if (seam) c = mix(c, ice, 0.55);
+        if (glint) c = mix(c, ice, 0.7);
+        F[i] = clamp(c[0], 0, 255); F[i + 1] = clamp(c[1], 0, 255); F[i + 2] = clamp(c[2], 0, 255);
+        F[i + 3] = F[i + 3] * (seam || glint ? 0.95 : 0.8);
+      }
+    }
+
+    // Frozen: rime along every upper edge, frost flecks, icicles off the
+    // undersides. (The slow swim is applied to the anim in paintFish.)
+    function frost(F, f, anim) {
+      const solid = solidIn(F), rime = [236, 250, 255], icicle = [196, 236, 255];
+      const tops = [], drips = [];
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+        if (!solid(x, y)) continue;
+        if (!solid(x, y - 1)) tops.push(x, y);
+        else if (hash(x * 3, y + f.patternSeed) > 0.93) tops.push(x, y); // fleck
+        if (!solid(x, y + 1) && hash(x, f.patternSeed) > 0.78) drips.push(x, y);
+      }
+      for (let i = 0; i < tops.length; i += 2) plot(F, tops[i], tops[i + 1], rime, 0.85);
+      const shimmer = anim ? anim.time : 0;
+      for (let i = 0; i < drips.length; i += 2) {
+        const x = drips[i], y = drips[i + 1], len = 1 + Math.floor(hash(x + 9, f.patternSeed) * 3);
+        for (let k = 1; k <= len; k++) plot(F, x, y + k, icicle, 0.9 - k * 0.2);
+        if (anim && Math.sin(shimmer * 3 + x) > 0.9) plot(F, x, y + len, rime, 0.9);
+      }
+    }
+
+    // Glowing: a soft halo in the glow colour, pulsing when animated, and a
+    // little of that light bleeding into the flesh.
+    function glowHalo(F, f, anim) {
+      const solid = solidIn(F), glow = hx(f.glowColor || '#bff4ff'), pulse = anim ? anim.glow : 1;
+      const halo = [];
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+        if (solid(x, y)) { continue; }
+        let d = 9;
+        for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (solid(x + dx, y + dy)) d = Math.min(d, Math.hypot(dx, dy));
+        if (d <= 3.2) halo.push(x, y, d);
+      }
+      for (let i = 0; i < F.length; i += 4) if (F[i + 3] >= 128) {
+        const c = mix([F[i], F[i + 1], F[i + 2]], glow, 0.16 * pulse);
+        F[i] = c[0]; F[i + 1] = c[1]; F[i + 2] = c[2];
+      }
+      for (let i = 0; i < halo.length; i += 3) plot(F, halo[i], halo[i + 1], glow, (0.62 - halo[i + 2] * 0.17) * pulse);
+    }
+
+    // Golden: a bright metallic band across the upper flank plus a few
+    // twinkling glints.
+    function goldSheen(F, f, anim) {
+      const b = bbox(F); if (!b.ok) return;
+      const solid = solidIn(F), hi = [255, 248, 200];
+      const sweep = anim ? Math.sin(anim.time * 1.4) * 0.15 : 0;
+      for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+        if (!solid(x, y)) continue;
+        const v = (y - b.y0) / Math.max(1, b.y1 - b.y0) - 0.3 - sweep + (x - b.x0) * 0.004;
+        if (Math.abs(v) < 0.09) plot(F, x, y, hi, 0.55 * (1 - Math.abs(v) / 0.09));
+      }
+      const rng = makePRNG(`gold|${f.patternSeed}`);
+      for (let k = 0; k < 3; k++) {
+        const x = ri(rng, b.x0 + 2, b.x1 - 2), y = ri(rng, b.y0 + 1, b.y1 - 1), ph = rng() * 6;
+        if (!solid(x, y)) continue;
+        const tw = anim ? Math.max(0, Math.sin(anim.time * 3 + ph)) : 0.8;
+        if (tw > 0.05) sparkle(F, x, y, 1, [255, 255, 236], tw);
+      }
+    }
+
+    // Shiny: big four-point stars twinkling just around the silhouette.
+    function shineSparkles(F, f, anim) {
+      const b = bbox(F); if (!b.ok) return;
+      const rng = makePRNG(`shine|${f.patternSeed}`);
+      for (let k = 0; k < 4; k++) {
+        const x = ri(rng, b.x0 - 2, b.x1 + 2), y = ri(rng, b.y0 - 3, b.y1 + 2), ph = rng() * 6.28;
+        const tw = anim ? Math.max(0, Math.sin(anim.time * 2.6 + ph)) : [1, 0.7, 0.45, 0.8][k];
+        if (tw > 0.05) sparkle(F, x, y, tw > 0.6 ? 2 : 1, k % 2 ? [255, 250, 210] : [255, 255, 255], 0.95 * tw);
+      }
+    }
+
+    // Raster-level effects over the finished fish layer, in a fixed order.
+    function applyEffects(F, f, anim) {
+      if (hasFx(f, 'crystal')) crystalize(F, f, anim);
+      if (hasFx(f, 'frozen')) frost(F, f, anim);
+      if (hasFx(f, 'glowing')) glowHalo(F, f, anim);
+      if (hasFx(f, 'golden')) goldSheen(F, f, anim);
+      if (hasFx(f, 'shiny')) shineSparkles(F, f, anim);
+      return F;
+    }
+
+    // ---- scene -------------------------------------------------------------
+    function paintBackground(R, habitat, scene, cfg, seed, anim) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
+      const c1 = hx(scene.bg1), c2 = hx(scene.bg2), light = hx(scene.light), speck = hx(scene.speck);
+      const drift = anim ? anim.time : 0, rays = Hb.rays * cfg.lightRays;
+      for (let y = 0; y < FISH_H; y++) {
+        const base = mix(c1, c2, y / (FISH_H - 1));
+        for (let x = 0; x < FISH_W; x++) {
+          plot(R, x, y, base);
+          if (rays > 0) {
+            const r = Math.sin((x * 0.55 + y * 0.3) * 0.45 + seed * 0.37 + drift * 0.4);
+            if (r > 0.6) plot(R, x, y, light, (r - 0.6) * 0.3 * rays * (1 - y / FISH_H));
+          }
+        }
+      }
+      const n = Math.round(14 * Hb.snow); // drifting specks / marine snow
+      for (let i = 0; i < n; i++) {
+        const x = Math.floor(hash(i, seed) * FISH_W);
+        const y = Math.floor((hash(seed, i) * FISH_H + drift * 2 * (0.5 + hash(i, i))) % FISH_H);
+        plot(R, x, y, speck, 0.45);
+      }
+      if (Hb.nebula) { // two octaves of cloud in the scene's light colour
+        for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+          const nb = noise((x + seed + drift * 0.3) / 9, y / 7) * 0.7 + noise(x / 4, (y + seed) / 4) * 0.3;
+          if (nb > 0.5) plot(R, x, y, light, (nb - 0.5) * 0.9 * Hb.nebula);
+        }
+      }
+      const stars = Math.round(28 * (Hb.stars || 0));
+      for (let i = 0; i < stars; i++) {
+        const x = Math.floor(hash(i + 7, seed) * FISH_W), y = Math.floor(hash(seed, i + 7) * FISH_H);
+        const tw = anim ? 0.35 + 0.65 * Math.abs(Math.sin(drift * 1.7 + i * 1.3)) : 0.4 + 0.6 * hash(i, seed + 1);
+        plot(R, x, y, speck, tw);
+        if (hash(i, i + seed) > 0.85) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) plot(R, x + dx, y + dy, speck, 0.3 * tw);
+      }
+    }
+    function bubble(R, x, y, c, big, a) {
+      if (!big) { plot(R, x, y, c, a); return; }
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) plot(R, x + dx, y + dy, c, a);
+      plot(R, x, y, c, a * 0.15);
+    }
+
+    // ---- entry points ------------------------------------------------------
+    // Paint a fish from an explicit feature object into a FISH_W x FISH_H 2D
+    // context. All drawing happens in plain RGBA buffers; the context is only
+    // touched once, by putImageData, so callers' transforms don't apply.
+    function paintFish(ctx, f0, habitat, cfg, bgSeed, anim = null) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
+      const scene = cfg.scene || Hb.scene;
+      const f = effectColours(f0); // mutation effects recolour a copy, never the caller's object
+      const G = makeGeom(f);
+      const out = raster();
+      if (!cfg.transparentBackground) paintBackground(out, habitat, scene, cfg, bgSeed, anim);
+      if (anim && hasFx(f, 'frozen')) anim = { ...anim, waveAmp: anim.waveAmp * 0.35, tail: anim.tail * 0.35, pect: anim.pect * 0.35 };
+
+      const fins = raster(), body = raster();
+      drawTail(fins, f, G, anim); drawDorsal(fins, f, G); drawAnal(fins, f, G); drawPelvic(fins, f, G);
+      edgeDarken(fins, 0.7);
+      drawBody(body, f, G);
+      if (hasFx(f, 'spotted')) spotCoat(body, f);
+      edgeDarken(body, 0.6);
+      drawHead(body, f, G, anim);
+      drawPectoral(body, f, G, anim);
+      drawExtras(body, f, G, anim);
+      over(fins, body);
+      const fish = applyEffects(f.aura ? voidAura(fins, f, anim) : fins, f, anim);
+
+      // Composite with optional mirroring + a swim wave that grows toward the tail.
+      const flip = !!f.faceRight;
+      for (let x = 0; x < FISH_W; x++) {
+        let dy = 0;
+        if (anim) {
+          const w = clamp((x - (G.x0 + G.L * 0.3)) / (G.L * 0.7 + G.tailLen), 0, 1);
+          dy = Math.round(anim.waveAmp * w * Math.sin(anim.wave - x * 0.25)) + anim.bob;
+        }
+        const dx = flip ? FISH_W - 1 - x : x;
+        for (let y = 0; y < FISH_H; y++) {
+          const i = (y * FISH_W + x) * 4, a = fish[i + 3];
+          if (a) plot(out, dx, y + dy, [fish[i], fish[i + 1], fish[i + 2]], a / 255);
+        }
+      }
+
+      // Bubbles rise from the mouth: a steady stream when animated, a seeded
+      // few frozen in place otherwise.
+      const [mx0, my] = mouthPoint(f, G), mx = flip ? FISH_W - 1 - mx0 : mx0;
+      const bc = hx(scene.bubble);
+      if (anim) {
+        if (cfg.bubbleChance > 0) for (let i = 0; i < 3; i++) {
+          const age = (anim.time * 0.45 + i / 3) % 1;
+          bubble(out, mx + Math.round(Math.sin(age * 9 + i * 2)), Math.round(my - 2 - age * (my + 2)), bc, age > 0.35, 0.85 * (1 - age * 0.4));
+        }
+      } else {
+        const rng = makePRNG(`fishbubbles|${bgSeed}`);
+        if (rng() < cfg.bubbleChance) {
+          const n = ri(rng, 1, 3);
+          for (let k = 0; k < n; k++) bubble(out, mx + ri(rng, -1, 1), my - 3 - k * 4 - ri(rng, 0, 1), bc, k > 0, 0.85);
+        }
+      }
+      ctx.putImageData(new ImageData(out, FISH_W, FISH_H), 0, 0);
+      return f0;
+    }
+
+    // Draw one fish, deriving every feature from (seed, habitat).
+    function drawFish(ctx, seedStr, habitat = FIRST_HABITAT, config = {}) {
+      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
+      const f = rollFeatures(makePRNG(`fish|${habitat}|${seedStr}`), habitat, cfg);
+      return paintFish(ctx, f, habitat, cfg, Math.floor(hash(seedStr.length, f.patternSeed) * 1000));
+    }
+    // The rolled feature object for a seed — a starting point for manual editing.
+    function featuresFromSeed(seedStr, habitat = FIRST_HABITAT, config = {}) {
+      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
+      return rollFeatures(makePRNG(`fish|${habitat}|${seedStr}`), habitat, cfg);
+    }
+    // Draw from an explicit feature object (creator), bypassing the roll.
+    function drawFishFeatures(ctx, features, habitat = FIRST_HABITAT, config = {}, anim = null) {
+      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
+      return paintFish(ctx, { ...features }, habitat, cfg, features.patternSeed, anim);
+    }
+    // Pure idle-swim driver: (elapsed ms, per-fish phase) -> per-frame deltas,
+    // so the same fish swims identically on every client without shared state.
+    function fishAnim(tMs, phase = 0) {
+      const t = tMs / 1000 + phase;
+      return {
+        time: t,
+        wave: t * 6, waveAmp: 1.2,                         // body undulation
+        tail: Math.sin(t * 6 - 1.2),                       // caudal beat
+        pect: Math.sin(t * 8 + phase),                     // pectoral flutter
+        bob: Math.round(Math.sin(t * 1.3 + phase * 2) * 0.9),
+        glow: 0.65 + 0.35 * Math.sin(t * 2.2 + phase),     // lure / photophores
+        gulp: t % 3.3 < 0.35,                              // mouth opens briefly
+      };
+    }
+    // Browser-only: nearest-neighbour upscale to `width` (height keeps 4:3).
+    function renderFishDataURL(seedStr, habitat = FIRST_HABITAT, width = 128, config = {}) {
+      return upscaledDataURL((ctx) => drawFish(ctx, seedStr, habitat, config), width);
+    }
+    function renderFishFeaturesDataURL(features, habitat = FIRST_HABITAT, width = 128, config = {}) {
+      return upscaledDataURL((ctx) => drawFishFeatures(ctx, features, habitat, config), width);
+    }
+    function upscaledDataURL(drawInto, width) {
+      const src = document.createElement('canvas');
+      src.width = FISH_W; src.height = FISH_H;
+      drawInto(src.getContext('2d'));
+      const out = document.createElement('canvas');
+      out.width = width; out.height = Math.round(width * FISH_H / FISH_W);
+      const octx = out.getContext('2d');
+      octx.imageSmoothingEnabled = false;
+      octx.drawImage(src, 0, 0, out.width, out.height);
+      return out.toDataURL('image/png');
+    }
+
+    // Every editable feature, for the creator UI. Types: bool, int (min/max),
+    // color (options = suggested swatches), enum (values or [label, value]).
+    // `rebuild` re-renders the controls after a change (the shape preset
+    // rewrites several other fields).
+    const t1 = (v) => [v.charAt(0).toUpperCase() + v.slice(1), v];
+    const allPool = (k) => [...new Set(Object.values(HABITATS).flatMap((h) => h[k]))];
+    const FEATURE_SCHEMA = [
+      { group: 'Body', key: 'shape', type: 'enum', label: 'Shape preset', options: Object.keys(SHAPES).map(t1),
+        set: (f, v) => applyShapePreset(f, v), rebuild: true },
+      { group: 'Body', key: 'bodyLen', type: 'int', label: 'Length', min: 16, max: 56 },
+      { group: 'Body', key: 'bodyDepth', type: 'int', label: 'Depth', min: 4, max: 32 },
+      { group: 'Body', key: 'peak', type: 'int', label: 'Deepest at %', min: 10, max: 70 },
+      { group: 'Body', key: 'headBlunt', type: 'int', label: 'Head (1 blunt–5 sharp)', min: 1, max: 5 },
+      { group: 'Body', key: 'taper', type: 'int', label: 'Tail stalk %', min: 6, max: 70 },
+      { group: 'Body', key: 'backArch', type: 'int', label: 'Back arch %', min: 35, max: 65 },
+
+      { group: 'Fins', key: 'tail', type: 'enum', label: 'Tail', options: Object.keys(TAILS).map(t1) },
+      { group: 'Fins', key: 'tailLen', type: 'int', label: 'Tail length', min: 0, max: 20 },
+      { group: 'Fins', key: 'tailSpan', type: 'int', label: 'Tail span', min: 1, max: 22 },
+      { group: 'Fins', key: 'dorsal', type: 'enum', label: 'Dorsal', options: DORSALS.map(t1) },
+      { group: 'Fins', key: 'dorsalH', type: 'int', label: 'Dorsal height', min: 0, max: 14 },
+      { group: 'Fins', key: 'dorsalLean', type: 'int', label: 'Fin sweep', min: 0, max: 10 },
+      { group: 'Fins', key: 'dorsalStart', type: 'int', label: 'Dorsal from %', min: 5, max: 80 },
+      { group: 'Fins', key: 'dorsalEnd', type: 'int', label: 'Dorsal to %', min: 20, max: 100 },
+      { group: 'Fins', key: 'anal', type: 'enum', label: 'Anal fin', options: ANALS.map(t1) },
+      { group: 'Fins', key: 'analH', type: 'int', label: 'Anal height', min: 0, max: 10 },
+      { group: 'Fins', key: 'analStart', type: 'int', label: 'Anal from %', min: 30, max: 90 },
+      { group: 'Fins', key: 'analEnd', type: 'int', label: 'Anal to %', min: 40, max: 100 },
+      { group: 'Fins', key: 'pectoral', type: 'int', label: 'Pectoral', min: 0, max: 9 },
+      { group: 'Fins', key: 'pelvic', type: 'bool', label: 'Pelvic fin' },
+      { group: 'Fins', key: 'finAlpha', type: 'int', label: 'Fin opacity %', min: 20, max: 100 },
+      { group: 'Fins', key: 'finColor', type: 'color', label: 'Fin colour', options: allPool('fin') },
+
+      { group: 'Head', key: 'eyeR', type: 'int', label: 'Eye size', min: 1, max: 5 },
+      { group: 'Head', key: 'eyeColor', type: 'color', label: 'Iris', options: allPool('eye') },
+      { group: 'Head', key: 'mouth', type: 'enum', label: 'Mouth', options: [['Terminal', 'terminal'], ['Upturned', 'up'], ['Underslung', 'down']] },
+      { group: 'Head', key: 'mouthW', type: 'int', label: 'Mouth length', min: 1, max: 7 },
+      { group: 'Head', key: 'lips', type: 'bool', label: 'Lips' },
+      { group: 'Head', key: 'teeth', type: 'bool', label: 'Teeth' },
+      { group: 'Head', key: 'barbels', type: 'int', label: 'Barbel pairs', min: 0, max: 2 },
+      { group: 'Head', key: 'barbelLen', type: 'int', label: 'Barbel length', min: 2, max: 12 },
+
+      { group: 'Colour & pattern', key: 'backColor', type: 'color', label: 'Back', options: allPool('body') },
+      { group: 'Colour & pattern', key: 'bellyColor', type: 'color', label: 'Belly', options: ['#f2efe4', '#ffffff', '#e8e0c8', ...allPool('body')] },
+      { group: 'Colour & pattern', key: 'patternColor', type: 'color', label: 'Pattern colour', options: allPool('pattern') },
+      { group: 'Colour & pattern', key: 'pattern', type: 'enum', label: 'Pattern', options: PATTERNS.map(t1) },
+      { group: 'Colour & pattern', key: 'patternCount', type: 'int', label: 'Pattern amount', min: 1, max: 6 },
+      { group: 'Colour & pattern', key: 'patternSeed', type: 'int', label: 'Pattern seed', min: 0, max: 999 },
+      { group: 'Colour & pattern', key: 'scales', type: 'bool', label: 'Scale texture' },
+      { group: 'Colour & pattern', key: 'lateralLine', type: 'bool', label: 'Lateral line' },
+
+      { group: 'Extras', key: 'lure', type: 'bool', label: 'Angler lure' },
+      { group: 'Extras', key: 'photophores', type: 'bool', label: 'Photophores' },
+      { group: 'Extras', key: 'glowColor', type: 'color', label: 'Glow colour', options: allPool('glow') },
+      { group: 'Extras', key: 'spikes', type: 'bool', label: 'Spines' },
+      { group: 'Extras', key: 'faceRight', type: 'bool', label: 'Face right' },
+
+      { group: 'Eldritch', key: 'tentacles', type: 'int', label: 'Chin tentacles', min: 0, max: 6 },
+      { group: 'Eldritch', key: 'tentacleLen', type: 'int', label: 'Tentacle length', min: 3, max: 16 },
+      { group: 'Eldritch', key: 'extraEyes', type: 'int', label: 'Extra eyes', min: 0, max: 8 },
+      { group: 'Eldritch', key: 'maw', type: 'bool', label: 'Gaping maw' },
+      { group: 'Eldritch', key: 'runes', type: 'bool', label: 'Runes' },
+      { group: 'Eldritch', key: 'aura', type: 'bool', label: 'Void aura' },
+      { group: 'Eldritch', key: 'skeletal', type: 'bool', label: 'Ghost flesh' },
+      { group: 'Eldritch', key: 'eldritchColor', type: 'color', label: 'Eldritch colour', options: ELDRITCH },
+
+      { group: `Mutation effects (max ${MAX_EFFECTS})`, key: 'effects', type: 'flags', label: 'Effects',
+        options: EFFECT_KEYS.map((k) => [`${EFFECTS[k].icon} ${EFFECTS[k].label}`, k]), max: MAX_EFFECTS },
+    ];
+    const SCHEMA_BY_KEY = Object.fromEntries(FEATURE_SCHEMA.map((f) => [f.key, f]));
+
+    // ---- breeding ----------------------------------------------------------
+    // Genes that travel together, so a child inherits a recognisable tail or
+    // dorsal fin from one parent instead of a mash of unrelated numbers. Every
+    // other feature is its own gene.
+    const GENE_LINKS = [
+      ['shape', 'bodyLen', 'bodyDepth', 'peak', 'headBlunt', 'taper', 'backArch'],
+      ['tail', 'tailLen', 'tailSpan'],
+      ['dorsal', 'dorsalH', 'dorsalStart', 'dorsalEnd', 'dorsalLean'],
+      ['anal', 'analH', 'analStart', 'analEnd'],
+      ['pattern', 'patternCount', 'patternSeed'],
+      ['barbels', 'barbelLen'],
+      ['tentacles', 'tentacleLen'],
+    ];
+    // Cross two fish of the same habitat. Each gene group comes from one
+    // parent; within it a number may land anywhere between the two parents and
+    // a colour may blend. A `mutation` share of genes is taken instead from a
+    // fresh fish of the habitat, so mutations stay native to it. Deterministic:
+    // the same parents + seedStr always give the same child. Returns the child
+    // and, per feature, where it came from ('A' | 'B' | 'mix' | 'mut').
+    // Mutation effects for a child, from their own stream so they never shift
+    // the gene rolls. Each effect a parent carries passes on 35% of the time
+    // (65% if both carry it); then fresh effects roll, each one rarer than the
+    // last: effectChance for the first, then EFFECT_STACK. Weighted by
+    // EFFECTS[k].weight, capped at MAX_EFFECTS. Returns { effects, fresh }.
+    function rollEffects(a, b, seedStr, habitat, effectChance) {
+      const rng = makePRNG(`effects|${habitat}|${seedStr}`), effects = [], fresh = [];
+      for (const k of EFFECT_KEYS) {
+        const n = hasFx(a, k) + hasFx(b, k), r = rng();
+        if (n && r < (n === 2 ? 0.65 : 0.35) && effects.length < MAX_EFFECTS) effects.push(k);
+      }
+      while (effects.length < MAX_EFFECTS) {
+        const odds = effects.length ? EFFECT_STACK[effects.length - 1] : effectChance;
+        if (rng() >= odds) break;
+        const k = pickW(rng, Object.fromEntries(EFFECT_KEYS.filter((e) => !effects.includes(e)).map((e) => [e, EFFECTS[e].weight])));
+        effects.push(k); fresh.push(k);
+      }
+      return { effects: EFFECT_KEYS.filter((k) => effects.includes(k)), fresh };
+    }
+
+    function breedFeatures(a, b, seedStr, habitat = FIRST_HABITAT, config = {}, mutation = 0.05, effectChance = 0.15) {
+      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
+      const rng = makePRNG(`breed|${habitat}|${seedStr}`);
+      const mutant = featuresFromSeed(`mutant|${seedStr}`, habitat, cfg);
+      const linked = new Set(GENE_LINKS.flat());
+      const groups = [...GENE_LINKS, ...Object.keys(mutant).filter((k) => !linked.has(k)).map((k) => [k])];
+      const child = {}, origin = {};
+      for (const group of groups) {
+        const fromA = rng() < 0.5;
+        for (const key of group) {
+          const field = SCHEMA_BY_KEY[key], va = a[key] ?? mutant[key], vb = b[key] ?? mutant[key];
+          const rBlend = rng(), t = rng(), rMut = rng(); // always three draws: fixed stream
+          let v = fromA ? va : vb, o = fromA ? 'A' : 'B';
+          if (va !== vb && field?.type === 'int' && rBlend < 0.4) { v = Math.round(lerp(va, vb, t)); o = 'mix'; }
+          else if (va !== vb && field?.type === 'color' && rBlend < 0.3) { v = toHex(mix(hx(va), hx(vb), t)); o = 'mix'; }
+          if (rMut < mutation) { v = mutant[key]; o = 'mut'; }
+          if (field?.type === 'int') v = clamp(v, field.min, field.max);
+          child[key] = v; origin[key] = o;
+        }
+      }
+      child.tailLen = clamp(child.tailLen, 0, 60 - child.bodyLen);
+      const { effects, fresh } = rollEffects(a, b, seedStr, habitat, effectChance);
+      child.effects = effects;
+      return { child, origin, freshEffects: fresh };
+    }
+
+    // =======================================================================
+    // lab UI
+    // =======================================================================
+    const $ = (id) => document.getElementById(id);
+    const habitatSel = $('habitat'), seedInput = $('seed'), sizeSel = $('size');
+
+    let habitat = Object.keys(HABITATS)[0];
+    let scenes = Object.fromEntries(Object.entries(HABITATS).map(([k, h]) => [k, { ...h.scene }])); // working copy
+    let config = { ...DEFAULT_FISH_CONFIG };
+    let gallerySeeds = freshGallery();
+    let customMode = false, breedMode = false;
+    let features = null;
+    // Breeding pen state. A parent is either seed-derived or a promoted child /
+    // creator fish; `hab` pins it to the habitat it was made in, so the pen
+    // only ever crosses two fish of the current habitat.
+    const parents = { A: null, B: null };
+    let mutation = 0.05, effectChance = 0.15, litterSeed = 'litter_1';
+    const LITTER = 16;
+
+    function freshGallery() { return Array.from({ length: 48 }, () => 'g_' + Math.floor(Math.random() * 1e9).toString(36)); }
+    const cfgFor = (hab) => ({ ...config, scene: scenes[hab] });
+    const url = (seed, hab, w) => renderFishDataURL(seed, hab, w, cfgFor(hab));
+
+    for (const [key, h] of Object.entries(HABITATS)) habitatSel.add(new Option(h.label, key));
+
+    function buildConfigControls() {
+      const cfg = $('cfg'); cfg.innerHTML = '';
+      for (const key of Object.keys(config)) {
+        const wrap = document.createElement('div'); wrap.className = 'knob';
+        const input = document.createElement('input');
+        input.type = 'number'; input.min = 0; input.max = 1; input.step = 0.05; input.value = config[key];
+        input.addEventListener('input', () => { const v = parseFloat(input.value); if (!Number.isNaN(v)) { config[key] = v; renderAll(); } });
+        const span = document.createElement('span');
+        span.textContent = key.replace(/Chance$/, '').replace(/([A-Z])/g, ' $1');
+        span.title = key;
+        wrap.append(input, span); cfg.appendChild(wrap);
+      }
+    }
+    function buildPaletteControls() {
+      const pal = $('palette'); pal.innerHTML = '';
+      for (const [key, color] of Object.entries(scenes[habitat])) {
+        const row = document.createElement('div'); row.className = 'swatch';
+        const input = document.createElement('input'); input.type = 'color'; input.value = color;
+        input.addEventListener('input', () => { scenes[habitat][key] = input.value; renderAll(); });
+        const span = document.createElement('span'); span.textContent = key;
+        row.append(input, span); pal.appendChild(row);
+      }
+    }
+
+    function makeCell(seed, hab, w, cap) {
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const img = document.createElement('img');
+      img.width = w; img.height = Math.round(w * FISH_H / FISH_W);
+      img.src = url(seed, hab, w); img.title = `${HABITATS[hab].label} · ${seed}`;
+      img.addEventListener('click', () => { habitat = hab; habitatSel.value = hab; seedInput.value = seed; buildPaletteControls(); renderAll(); });
+      cell.appendChild(img);
+      if (cap) { const c = document.createElement('div'); c.className = 'cap'; c.textContent = cap; cell.appendChild(c); }
+      return cell;
+    }
+    function gridOf(items) {
+      const grid = document.createElement('div'); grid.className = 'grid';
+      for (const it of items) grid.appendChild(makeCell(it.seed, it.hab, it.w, it.cap));
+      return grid;
+    }
+    function section(title, node) { const h = document.createElement('h2'); h.textContent = title; $('main').append(h, node); }
+
+    // ---- creator ----
+    const fieldGet = (field) => (field.get ? field.get(features) : features[field.key]);
+    const fieldSet = (field, v) => {
+      field.set ? field.set(features, v) : (features[field.key] = v);
+      field.rebuild ? renderCreator() : updateCreatorPreview();
+    };
+    const normOpts = (field) => field.options.map((o) => (Array.isArray(o) ? o : [o, o]));
+    const mkBtn = (text, onClick) => { const b = document.createElement('button'); b.textContent = text; b.addEventListener('click', onClick); return b; };
+
+    function buildFieldControl(field) {
+      const wrap = document.createElement('div'); wrap.className = 'cfield';
+      const lab = document.createElement('label'); lab.textContent = field.label; wrap.appendChild(lab);
+      if (field.type === 'bool') {
+        const input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!fieldGet(field);
+        input.addEventListener('change', () => fieldSet(field, input.checked));
+        wrap.appendChild(input);
+      } else if (field.type === 'int') {
+        const input = document.createElement('input'); input.type = 'number';
+        input.min = field.min; input.max = field.max; input.step = 1; input.value = fieldGet(field);
+        input.addEventListener('input', () => { const v = parseInt(input.value, 10); if (!Number.isNaN(v)) fieldSet(field, clamp(v, field.min, field.max)); });
+        wrap.appendChild(input);
+      } else if (field.type === 'color') {
+        const row = document.createElement('div'); row.className = 'color-row';
+        const input = document.createElement('input'); input.type = 'color'; input.value = fieldGet(field) || '#888888';
+        input.addEventListener('input', () => fieldSet(field, input.value));
+        const presets = document.createElement('div'); presets.className = 'presets';
+        for (const c of field.options || []) {
+          const b = document.createElement('button'); b.style.background = c; b.title = c;
+          b.addEventListener('click', () => { input.value = c; fieldSet(field, c); });
+          presets.appendChild(b);
+        }
+        row.append(input, presets); wrap.appendChild(row);
+      } else if (field.type === 'enum') {
+        const sel = document.createElement('select'), opts = normOpts(field);
+        opts.forEach(([label], i) => sel.add(new Option(label, String(i))));
+        const idx = opts.findIndex(([, v]) => v === fieldGet(field));
+        sel.value = String(idx < 0 ? 0 : idx);
+        sel.addEventListener('change', () => fieldSet(field, opts[Number(sel.value)][1]));
+        wrap.appendChild(sel);
+      } else if (field.type === 'flags') { // checkbox set, at most field.max ticked
+        wrap.classList.add('flags');
+        const boxes = [];
+        const sync = () => { const n = boxes.filter((b) => b.checked).length; for (const b of boxes) b.disabled = !b.checked && n >= field.max; };
+        for (const [label, v] of normOpts(field)) {
+          const row = document.createElement('label'); row.className = 'flag';
+          const box = document.createElement('input'); box.type = 'checkbox'; box.value = v;
+          box.checked = (fieldGet(field) || []).includes(v);
+          box.addEventListener('change', () => { sync(); fieldSet(field, normOpts(field).map(([, k]) => k).filter((k) => boxes.find((b) => b.value === k).checked)); });
+          boxes.push(box); row.append(box, label); wrap.appendChild(row);
+        }
+        sync();
+      }
+      return wrap;
+    }
+
+    const animBuf = document.createElement('canvas'); animBuf.width = FISH_W; animBuf.height = FISH_H;
+    function paintCreator(anim) {
+      const canvas = $('creator-canvas'); if (!canvas) return;
+      drawFishFeatures(animBuf.getContext('2d'), features, habitat, cfgFor(habitat), anim);
+      const cctx = canvas.getContext('2d'); cctx.imageSmoothingEnabled = false;
+      cctx.clearRect(0, 0, canvas.width, canvas.height);
+      cctx.drawImage(animBuf, 0, 0, canvas.width, canvas.height);
+    }
+    function updateCreatorPreview() { if (!animOn) paintCreator(null); }
+
+    // ~12fps is plenty for pixel art and keeps CPU low.
+    let animOn = false, animRAF = 0, animLast = 0;
+    function animTick(t) {
+      if (!animOn) return;
+      if (t - animLast >= 83) { animLast = t; paintCreator(fishAnim(t, 7.3)); }
+      animRAF = requestAnimationFrame(animTick);
+    }
+    function setAnim(on) {
+      animOn = on;
+      if (on) { animLast = 0; animRAF = requestAnimationFrame(animTick); }
+      else { cancelAnimationFrame(animRAF); paintCreator(null); }
+    }
+
+    function loadFeatures(seed) { features = featuresFromSeed(seed, habitat, config); }
+
+    function renderCreator() {
+      const main = $('main'); main.innerHTML = '';
+      if (!features) loadFeatures(seedInput.value || 'fish_1000');
+      const wrap = document.createElement('div'); wrap.className = 'creator';
+      const col = document.createElement('div');
+      const canvas = document.createElement('canvas'); canvas.id = 'creator-canvas'; canvas.width = 512; canvas.height = 384;
+      col.appendChild(canvas);
+      const btns = document.createElement('div'); btns.className = 'btn-row';
+      const jsonOut = document.createElement('textarea'); jsonOut.id = 'json-out'; jsonOut.readOnly = true; jsonOut.style.height = '90px';
+      btns.append(
+        mkBtn('⤵ Load seed', () => { loadFeatures(seedInput.value || 'fish_1000'); renderCreator(); }),
+        mkBtn('🎲 Randomize', () => { loadFeatures('rand_' + Math.random().toString(36).slice(2)); renderCreator(); }),
+        mkBtn(animOn ? '⏸ Stop' : '▶ Swim', (e) => { setAnim(!animOn); e.target.textContent = animOn ? '⏸ Stop' : '▶ Swim'; }),
+        mkBtn('Copy JSON', async () => { jsonOut.value = JSON.stringify(features); jsonOut.style.display = 'block'; try { await navigator.clipboard.writeText(jsonOut.value); } catch { /* shown in textarea */ } }),
+        mkBtn('🧬 → Parent A', () => { setParent('A', structuredClone(features), 'from creator', 0); setMode('breed'); }),
+        mkBtn('🧬 → Parent B', () => { setParent('B', structuredClone(features), 'from creator', 0); setMode('breed'); }),
+      );
+      col.append(btns, jsonOut);
+      wrap.appendChild(col);
+      const groupsWrap = document.createElement('div'); groupsWrap.className = 'creator-groups';
+      const order = [], byGroup = new Map();
+      for (const field of FEATURE_SCHEMA) {
+        if (!byGroup.has(field.group)) { byGroup.set(field.group, []); order.push(field.group); }
+        byGroup.get(field.group).push(field);
+      }
+      for (const g of order) {
+        const sect = document.createElement('div');
+        const title = document.createElement('div'); title.className = 'cgroup-title'; title.textContent = g;
+        const grid = document.createElement('div'); grid.className = 'creator-controls';
+        for (const field of byGroup.get(g)) grid.appendChild(buildFieldControl(field));
+        sect.append(title, grid); groupsWrap.appendChild(sect);
+      }
+      wrap.appendChild(groupsWrap);
+      section('Fish creator', wrap);
+      updateCreatorPreview();
+    }
+
+    // ---- breeding pen ----
+    function setParent(slot, feats, label, gen, seed = null) { parents[slot] = { features: feats, label, gen, seed, hab: habitat }; }
+    function seedParent(slot, seed) { setParent(slot, featuresFromSeed(seed, habitat, config), seed, 0, seed); }
+    function ensureParents() {
+      if (parents.A?.hab !== habitat) seedParent('A', parents.A?.seed || 'fish_1000');
+      if (parents.B?.hab !== habitat) seedParent('B', parents.B?.seed || 'fish_2000');
+    }
+    const featImg = (feats, w) => {
+      const img = document.createElement('img');
+      img.width = w; img.height = Math.round(w * FISH_H / FISH_W);
+      img.src = renderFishFeaturesDataURL(feats, habitat, w, cfgFor(habitat));
+      const rar = RARITY[fxList(feats).length];
+      if (rar.color) { img.style.borderColor = rar.color; img.style.boxShadow = `0 0 6px ${rar.color}`; }
+      return img;
+    };
+    // "✨❄️ Epic" — the effect icons plus the rarity tier their count earns.
+    const fxBadge = (feats) => {
+      const fx = fxList(feats);
+      return fx.length ? `${fx.map((k) => EFFECTS[k].icon).join('')} ${RARITY[fx.length].name}` : '';
+    };
+    const fxBadgeEl = (feats) => {
+      const d = document.createElement('div'); d.className = 'fx'; d.textContent = fxBadge(feats);
+      const rar = RARITY[fxList(feats).length]; if (rar.color) d.style.color = rar.color;
+      d.title = fxList(feats).map((k) => EFFECTS[k].label).join(' + ');
+      return d;
+    };
+
+    function parentCard(slot) {
+      const p = parents[slot], card = document.createElement('div'); card.className = 'parent';
+      const title = document.createElement('div'); title.className = 'ptitle'; title.textContent = `Parent ${slot}`;
+      const row = document.createElement('div'); row.className = 'seed-row';
+      const input = document.createElement('input'); input.type = 'text'; input.spellcheck = false;
+      input.value = p.seed ?? ''; input.placeholder = 'seed';
+      input.addEventListener('change', () => { if (input.value) { seedParent(slot, input.value); renderBreeding(); } });
+      row.append(input, mkBtn('🎲', () => { seedParent(slot, 'fish_' + Math.floor(Math.random() * 1e9).toString(36)); renderBreeding(); }));
+      const label = document.createElement('div'); label.className = 'plabel';
+      label.textContent = p.gen ? `Gen ${p.gen} · ${p.label}` : p.label;
+      card.append(title, featImg(p.features, 256), row, label, fxBadgeEl(p.features));
+      return card;
+    }
+
+    function litterCell(k) {
+      const { child, origin, freshEffects } = breedFeatures(parents.A.features, parents.B.features, `${litterSeed}#${k}`, habitat, config, mutation, effectChance);
+      const gen = Math.max(parents.A.gen, parents.B.gen) + 1, name = `#${k}`;
+      const counts = { A: 0, B: 0, mix: 0, mut: 0 };
+      for (const o of Object.values(origin)) counts[o]++;
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const img = featImg(child, Number(sizeSel.value));
+      img.title = `Gen ${gen} ${name}\nfrom A: ${counts.A} · from B: ${counts.B} · blended: ${counts.mix} · mutated: ${counts.mut}`
+        + (counts.mut ? `\nmutations: ${Object.keys(origin).filter((g) => origin[g] === 'mut').join(', ')}` : '')
+        + (child.effects.length ? `\neffects (${RARITY[child.effects.length].name}): ${child.effects.map((e) => EFFECTS[e].label + (freshEffects.includes(e) ? ' (new)' : ' (inherited)')).join(', ')}` : '');
+      const acts = document.createElement('div'); acts.className = 'acts';
+      acts.append(
+        mkBtn('→A', () => { setParent('A', child, `child ${name}`, gen); renderBreeding(); }),
+        mkBtn('→B', () => { setParent('B', child, `child ${name}`, gen); renderBreeding(); }),
+        mkBtn('✎', () => { features = structuredClone(child); setMode('custom'); }),
+      );
+      const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = `${name} · A${counts.A} B${counts.B} ~${counts.mix}${counts.mut ? ` ⚡${counts.mut}` : ''}`;
+      cell.append(img, cap, fxBadgeEl(child), acts);
+      return cell;
+    }
+
+    function renderBreeding() {
+      $('main').innerHTML = '';
+      ensureParents();
+      const pen = document.createElement('div'); pen.className = 'pen';
+      const cross = document.createElement('div'); cross.className = 'cross'; cross.textContent = '×';
+      const controls = document.createElement('div'); controls.className = 'pen-controls';
+      const mLab = document.createElement('label'); mLab.textContent = 'Mutation rate (0–1)';
+      const mIn = document.createElement('input'); mIn.type = 'number'; mIn.min = 0; mIn.max = 1; mIn.step = 0.01; mIn.value = mutation;
+      mIn.addEventListener('change', () => { const v = parseFloat(mIn.value); if (!Number.isNaN(v)) { mutation = clamp(v, 0, 1); renderBreeding(); } });
+      const eLab = document.createElement('label'); eLab.textContent = 'Effect chance (0–1)';
+      const eIn = document.createElement('input'); eIn.type = 'number'; eIn.min = 0; eIn.max = 1; eIn.step = 0.05; eIn.value = effectChance;
+      eIn.title = `Chance of a first new effect; after that, ${EFFECT_STACK[0] * 100}% for a 2nd and ${EFFECT_STACK[1] * 100}% for a 3rd`;
+      eIn.addEventListener('change', () => { const v = parseFloat(eIn.value); if (!Number.isNaN(v)) { effectChance = clamp(v, 0, 1); renderBreeding(); } });
+      controls.append(mLab, mIn, eLab, eIn,
+        mkBtn('🎲 New litter', () => { litterSeed = 'litter_' + Math.random().toString(36).slice(2); renderBreeding(); }),
+        mkBtn('⇄ Swap parents', () => { [parents.A, parents.B] = [parents.B, parents.A]; renderBreeding(); }));
+      pen.append(parentCard('A'), cross, parentCard('B'), controls);
+      section(`Breeding pen · ${HABITATS[habitat].label}`, pen);
+      const hint = document.createElement('div'); hint.className = 'hint';
+      hint.textContent = 'Caption: genes from A / B / ~blended / ⚡mutated (hover a child for detail). →A / →B promotes a child to parent; ✎ opens it in the creator. '
+        + `Effects: ${EFFECT_KEYS.map((k) => `${EFFECTS[k].icon} ${EFFECTS[k].label}`).join(' · ')}. `
+        + 'Up to 3 per fish (1 Rare, 2 Epic, 3 Legendary); parents pass theirs on 35% of the time each (65% if both carry it).';
+      $('main').append(hint);
+      const grid = document.createElement('div'); grid.className = 'grid';
+      for (let k = 0; k < LITTER; k++) grid.appendChild(litterCell(k));
+      section('Litter', grid);
+    }
+
+    // One view at a time: gallery, creator ('custom') or breeding pen ('breed').
+    function setMode(mode) {
+      customMode = mode === 'custom'; breedMode = mode === 'breed';
+      $('custom-toggle').checked = customMode; $('breed-toggle').checked = breedMode;
+      if (!customMode && animOn) setAnim(false);
+      renderAll();
+    }
+
+    function renderAll() {
+      if (customMode) { renderCreator(); return; }
+      if (breedMode) { renderBreeding(); return; }
+      $('main').innerHTML = '';
+      const seed = seedInput.value || 'fish_1000', w = Number(sizeSel.value);
+
+      section('Preview', gridOf(Object.keys(HABITATS).map((hab) => ({ seed, hab, w: 256, cap: HABITATS[hab].label }))));
+      const fd = document.createElement('div'); fd.className = 'feat';
+      const feat = featuresFromSeed(seed, habitat, config);
+      fd.textContent = `${HABITATS[habitat].label}\n` + Object.entries(feat).map(([k, v]) => `${k}: ${v}`).join('\n');
+      $('main').append(fd);
+
+      const baseSeed = seed.replace(/#\d+$/, '');
+      section('Seed variants (picker preview)',
+        gridOf(Array.from({ length: 32 }, (_, k) => ({ seed: `${baseSeed}#${k}`, hab: habitat, w, cap: '#' + k }))));
+      section('Variety gallery', gridOf(gallerySeeds.map((s) => ({ seed: s, hab: habitat, w }))));
+    }
+
+    function exportSnippet() {
+      const sc = Object.entries(scenes[habitat]).map(([k, v]) => `${k}: '${v}'`).join(', ');
+      const cfg = Object.entries(config).map(([k, v]) => `  ${k}: ${v},`).join('\n');
+      return `// HABITATS.${habitat}.scene\nscene: { ${sc} },\n\n// DEFAULT_FISH_CONFIG\n{\n${cfg}\n}`;
+    }
+
+    $('custom-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'custom' : 'gallery'));
+    $('breed-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'breed' : 'gallery'));
+    habitatSel.addEventListener('change', () => { habitat = habitatSel.value; buildPaletteControls(); renderAll(); });
+    seedInput.addEventListener('input', renderAll);
+    sizeSel.addEventListener('change', renderAll);
+    $('roll').addEventListener('click', () => { seedInput.value = 'fish_' + Math.floor(Math.random() * 1e9).toString(36); renderAll(); });
+    $('reshuffle').addEventListener('click', () => { gallerySeeds = freshGallery(); renderAll(); });
+    $('reset').addEventListener('click', () => {
+      scenes = Object.fromEntries(Object.entries(HABITATS).map(([k, h]) => [k, { ...h.scene }]));
+      config = { ...DEFAULT_FISH_CONFIG };
+      buildConfigControls(); buildPaletteControls(); renderAll();
+    });
+    $('export').addEventListener('click', async () => {
+      const out = $('export-out');
+      out.value = exportSnippet(); out.style.display = 'block';
+      try { await navigator.clipboard.writeText(out.value); } catch { /* textarea still shows it */ }
+    });
+
+    habitatSel.value = habitat;
+    buildConfigControls();
+    buildPaletteControls();
+    renderAll();
+  </script>
+</body>
+</html>
