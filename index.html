@@ -81,6 +81,7 @@
     .pen-controls label { font-size: 11px; color: #85969c; text-transform: uppercase; letter-spacing: 0.4px; }
     .grid .acts { display: flex; gap: 3px; justify-content: center; margin-top: 3px; }
     .grid .acts button { padding: 2px 6px; font-size: 11px; }
+    .notice { font-size: 12px; color: #ffcf6a; margin: 8px 0; }
     .fx { font-size: 11px; font-weight: bold; min-height: 15px; margin-top: 2px; }
     .cfield.flags { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
     .cfield.flags > label:first-child { width: 100%; }
@@ -104,6 +105,12 @@
     <div class="control">
       <label for="habitat">Habitat</label>
       <select id="habitat"></select>
+    </div>
+
+    <div class="control">
+      <label for="species">Species</label>
+      <select id="species"></select>
+      <div class="hint">"Habitat mix" lets each seed's habitat decide; only the same species can breed.</div>
     </div>
 
     <div class="control">
@@ -272,8 +279,10 @@
       pointed:  { len: [5, 9],   span: [0.3, 0.5] },
       veil:     { len: [11, 16], span: [0.7, 1.0] },
       tentacles: { len: [9, 14], span: [0.4, 0.7] }, // eldritch: writhing arms instead of a fin
+      heterocercal: { len: [10, 14], span: [0.6, 0.8] }, // shark: long upper lobe
+      fluke: { len: [8, 12], span: [0.5, 0.6] },          // whale: horizontal flukes, seen edge-on
     };
-    const DORSALS = ['none', 'rounded', 'swept', 'spiny', 'sail', 'double', 'long'];
+    const DORSALS = ['none', 'rounded', 'swept', 'spiny', 'sail', 'double', 'long', 'shark', 'hump'];
     const ANALS = ['none', 'rounded', 'swept', 'long'];
     const PATTERNS = ['none', 'bands', 'hstripes', 'spots', 'blotch', 'reticulate', 'split', 'starry'];
     // Eldritch accent colours: runes, auras, extra irises.
@@ -409,6 +418,91 @@
     };
     const FIRST_HABITAT = Object.keys(HABITATS)[0];
 
+    // ---- species -----------------------------------------------------------
+    // A species is a body plan. Fish, sharks and whales are side-on swimmers
+    // sharing one feature set and renderer; jellyfish have their own. Each
+    // non-fish species comes in kinds (presets) that can interbreed, but two
+    // different species never can.
+    const SPECIES = {
+      fish:  { label: 'Fish', plural: 'Fish', icon: '🐟' },
+      shark: { label: 'Shark', plural: 'Sharks', icon: '🦈' },
+      whale: { label: 'Whale', plural: 'Whales', icon: '🐋' },
+      jelly: { label: 'Jellyfish', plural: 'Jellyfish', icon: '🪼' },
+    };
+    const SWIMMERS = ['fish', 'shark', 'whale'], ALL_SPECIES = Object.keys(SPECIES);
+    // How often each species turns up when a seed isn't pinned to one.
+    const HABITAT_SPECIES = {
+      pond: { fish: 1 }, river: { fish: 1 },
+      lake: { fish: 20, jelly: 1 }, // freshwater jellies exist, barely
+      coast: { fish: 6, shark: 1, jelly: 1.5, whale: 0.4 },
+      coralReef: { fish: 8, shark: 1.2, jelly: 0.6 },
+      openOcean: { fish: 4, shark: 2, whale: 1.5, jelly: 2 },
+      abyssalTrench: { fish: 5, shark: 0.8, whale: 0.3, jelly: 2.5 },
+      cosmicVoid: { fish: 3, shark: 1, whale: 1.5, jelly: 2.5 },
+    };
+    // Per-habitat kind weights; anything not listed uses the kind's own `w`.
+    const HABITAT_KINDS = {
+      lake: { jelly: { moon: 1 } },
+      coast: { whale: { humpback: 3, orca: 2, narwhal: 0.5, blue: 0.5, sperm: 0.3 } },
+      coralReef: { shark: { hammerhead: 2, tiger: 2, whaleShark: 1, great: 0.5, thresher: 0.5 }, jelly: { box: 2, moon: 2, nettle: 1 } },
+      abyssalTrench: { whale: { sperm: 1 }, jelly: { comb: 2, box: 1, moon: 1, lionsMane: 1, nettle: 0.5 } },
+      cosmicVoid: { jelly: { comb: 4, moon: 1, box: 1 } },
+    };
+    for (const [k, h] of Object.entries(HABITATS)) { h.species = HABITAT_SPECIES[k] || { fish: 1 }; h.kinds = HABITAT_KINDS[k] || {}; }
+
+    // Kind presets. Ranges are [min, max]; arrays of colours are pools.
+    const SHARK_BASE = { tail: 'heterocercal', upper: [130, 160], tailLen: [10, 12], span: [0.65, 0.8], dorsal: 'shark', dorsalH: [7, 9],
+      dorsalAt: [[32, 36], [48, 54]], lean: [3, 5], mouth: 'down', teeth: true, flipper: [7, 9], gills: 5, eye: '#16181c' };
+    const SHARK_KINDS = {
+      great:      { w: 4, len: [40, 44], depth: [11, 14], peak: [36, 44], blunt: [4, 5], taper: [10, 14], arch: [54, 58],
+                    back: ['#6a7480', '#5c6672', '#7a8590'], belly: '#eef0ec' },
+      hammerhead: { w: 2, len: [38, 42], depth: [9, 11], peak: [36, 44], blunt: [3, 4], taper: [10, 14], arch: [54, 58], hammer: true,
+                    dorsalH: [8, 10], back: ['#8a8474', '#7a7a70', '#6e7c84'], belly: '#e8e8e0' },
+      thresher:   { w: 1.5, len: [32, 36], depth: [10, 12], peak: [36, 44], blunt: [3, 4], taper: [8, 12], arch: [54, 58],
+                    tailLen: [20, 24], upper: [250, 300], back: ['#6a5a8a', '#5a6a8a', '#7a6a90'], belly: '#ecebf0' },
+      tiger:      { w: 2, len: [40, 44], depth: [11, 13], peak: [34, 42], blunt: [2, 3], taper: [10, 14], arch: [54, 58],
+                    pattern: 'bands', patternCount: 6, patternColor: ['#3a3a2a', '#4a4030'], back: ['#7a7a5a', '#8a8062', '#6e7458'], belly: '#ecead8' },
+      whaleShark: { w: 1, len: [46, 50], depth: [12, 14], peak: [30, 38], blunt: [1, 1], taper: [10, 12], arch: [54, 58],
+                    mouth: 'terminal', teeth: false, dorsalAt: [[44, 48], [58, 62]], pattern: 'spots', patternCount: 5,
+                    patternColor: ['#e8eef0'], back: ['#3a4a6a', '#44587a', '#3a5068'], belly: '#d8e0e4' },
+    };
+    const WHALE_BASE = { tail: 'fluke', upper: 100, tailLen: [9, 11], span: [0.5, 0.6], dorsal: 'hump', dorsalH: [2, 3],
+      dorsalAt: [[64, 68], [74, 78]], lean: [2, 3], mouth: 'terminal', teeth: false, flipper: [6, 8], gills: 0, eye: '#1a1c20' };
+    const WHALE_KINDS = {
+      humpback: { w: 3, len: [42, 46], depth: [13, 15], peak: [32, 40], blunt: [1, 2], taper: [8, 12], arch: [46, 50], tailLen: [10, 12],
+                  flipper: [12, 15], fin: '#e4e8ea', pleats: true, knobs: true, back: ['#2a3038', '#363c46', '#2e3440'], belly: '#c8ccd0' },
+      sperm:    { w: 2, len: [46, 50], depth: [14, 16], peak: [14, 20], blunt: [1, 1], taper: [8, 12], arch: [54, 58], tailLen: [8, 10],
+                  squareHead: true, mouth: 'down', teeth: true, flipper: [4, 5], back: ['#5a5658', '#4a4a50', '#6a625e'], belly: '#7a7470' },
+      orca:     { w: 2, len: [38, 42], depth: [12, 14], peak: [36, 42], blunt: [2, 3], taper: [10, 14], arch: [52, 56], dorsal: 'shark',
+                  dorsalH: [9, 11], dorsalAt: [[40, 44], [52, 56]], lean: [0, 1], eyePatch: true, teeth: true,
+                  back: ['#141619', '#1a1c20'], belly: '#f4f4f0' },
+      blue:     { w: 1.5, len: [48, 52], depth: [10, 12], peak: [28, 34], blunt: [2, 3], taper: [10, 12], arch: [50, 54],
+                  dorsalAt: [[76, 78], [82, 84]], pleats: true, pattern: 'reticulate', patternCount: 2, patternColor: ['#8aa0b8'],
+                  back: ['#5a7090', '#4e6a8c', '#56708a'], belly: '#8aa0b4' },
+      narwhal:  { w: 1, len: [34, 38], depth: [10, 12], peak: [36, 44], blunt: [1, 2], taper: [10, 14], arch: [52, 56], tailLen: [7, 9],
+                  dorsal: 'none', tusk: [11, 14], pattern: 'spots', patternCount: 5, patternColor: ['#3a4048', '#4a5058'],
+                  back: ['#c8ccc8', '#b8bcb8', '#d0ccc4'], belly: '#e8e8e4' },
+    };
+    const JELLY_KINDS = {
+      moon:      { w: 4, shape: 'dome', bellW: [20, 26], bellH: [7, 10], tentN: [14, 20], tentLen: [3, 6], oral: [4, 4], oralLen: [6, 10],
+                   frilly: 0.3, markings: 'rings', alpha: [55, 70], back: ['#e4ecff', '#eef4ff', '#dce8f8'], mark: ['#ff9ad0', '#c08aff', '#ffb0a0'], fin: ['#f0f4ff'] },
+      box:       { w: 2, shape: 'box', bellW: [12, 16], bellH: [10, 13], tentN: [4, 4], tentLen: [22, 30], oral: [0, 0], oralLen: [0, 0],
+                   frilly: 0, markings: 'none', alpha: [50, 60], back: ['#d8f4ff', '#e0fff4'], mark: ['#a0d8ff'], fin: ['#c8ecff'] },
+      lionsMane: { w: 2, shape: 'flat', bellW: [22, 28], bellH: [8, 11], tentN: [18, 26], tentLen: [18, 28], oral: [3, 4], oralLen: [10, 16],
+                   frilly: 1, markings: 'stripes', alpha: [70, 85], back: ['#e8703a', '#d8502a', '#f0a040', '#c84a3a'], mark: ['#8a2a1a', '#f0c070'], fin: ['#f0b070', '#e89060'] },
+      nettle:    { w: 2, shape: 'bell', bellW: [14, 18], bellH: [11, 14], tentN: [6, 10], tentLen: [18, 26], oral: [4, 4], oralLen: [16, 24],
+                   frilly: 1, markings: 'stripes', alpha: [65, 80], back: ['#f0c890', '#e8a868', '#f4d8b0'], mark: ['#a04020', '#8a5a2a'], fin: ['#e8b080'] },
+      comb:      { w: 1.5, shape: 'oval', bellW: [10, 13], bellH: [15, 20], tentN: [0, 2], tentLen: [14, 22], oral: [0, 0], oralLen: [0, 0],
+                   frilly: 0, markings: 'comb', alpha: [50, 60], back: ['#e0f0ff', '#f0e8ff'], mark: ['#ffffff'], fin: ['#e8f0ff'] },
+    };
+    const KINDS = { shark: SHARK_KINDS, whale: WHALE_KINDS, jelly: JELLY_KINDS };
+    const KIND_LABELS = { great: 'Great white', hammerhead: 'Hammerhead', thresher: 'Thresher', tiger: 'Tiger', whaleShark: 'Whale shark',
+      humpback: 'Humpback', sperm: 'Sperm', orca: 'Orca', blue: 'Blue', narwhal: 'Narwhal',
+      moon: 'Moon', box: 'Box', lionsMane: "Lion's mane", nettle: 'Sea nettle', comb: 'Comb' };
+    const BELL_SHAPES = ['dome', 'flat', 'bell', 'box', 'oval'];
+    const MARKINGS = ['none', 'rings', 'stripes', 'spots', 'comb'];
+    const kindWeights = (sp, Hb) => Hb.kinds?.[sp] || Object.fromEntries(Object.entries(KINDS[sp]).map(([k, v]) => [k, v.w]));
+
     // Flat numeric knobs so the lab can bind each to one input.
     const DEFAULT_FISH_CONFIG = {
       patternChance: 0.8,
@@ -525,20 +619,107 @@
       f.tailLen = clamp(f.tailLen, 3, 60 - f.bodyLen);
     }
 
+    // Stamp a kind preset onto a shark, whale or jelly. With an rng every range
+    // and pool is rolled (in a fixed order per kind); without one it takes the
+    // midpoints and first colours (the creator's "Kind" field).
+    function applyKind(f, kind, habitat, rng = null) {
+      const K = KINDS[f.species]?.[kind]; if (!K) return f;
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT], deep = (Hb.mods.eldritch ?? 0) >= 1;
+      const r = (v) => (!Array.isArray(v) ? v : rng ? ri(rng, ...v) : Math.round((v[0] + v[1]) / 2));
+      const p = (v) => (!Array.isArray(v) ? v : rng ? pick(rng, v) : v[0]);
+      const tintWith = (c, pool, t) => (deep && rng ? toHex(mix(hx(c), hx(pick(rng, pool)), t)) : c);
+      f.kind = kind;
+      if (f.species === 'jelly') {
+        Object.assign(f, { bellShape: K.shape, bellW: r(K.bellW), bellH: r(K.bellH), tentN: r(K.tentN), tentLen: r(K.tentLen),
+          oralArms: r(K.oral), oralLen: r(K.oralLen), frilly: rng ? rng() < K.frilly : K.frilly >= 0.5, bellAlpha: r(K.alpha) });
+        f.backColor = tintWith(p(K.back), Hb.glow, 0.6);
+        f.bellyColor = toHex(mix(hx(f.backColor), [255, 255, 255], 0.4));
+        f.finColor = tintWith(p(K.fin), Hb.glow, 0.5);
+        f.markings = K.markings;
+        f.patternColor = p(K.mark);
+        return fitFrame(f);
+      }
+      const S = { ...(f.species === 'shark' ? SHARK_BASE : WHALE_BASE), ...K };
+      Object.assign(f, { shape: 'torpedo', bodyLen: r(S.len), bodyDepth: r(S.depth), peak: r(S.peak), headBlunt: r(S.blunt),
+        taper: r(S.taper), backArch: r(S.arch) });
+      Object.assign(f, { hammer: !!S.hammer, squareHead: !!S.squareHead, gillSlits: S.gills, tusk: S.tusk ? r(S.tusk) : 0,
+        eyePatch: !!S.eyePatch, pleats: !!S.pleats, knobs: !!S.knobs });
+      f.tail = S.tail; f.tailLen = r(S.tailLen); f.upperLobe = r(S.upper);
+      f.tailSpan = clamp(Math.round(f.bodyDepth * (rng ? lerp(S.span[0], S.span[1], rng()) : (S.span[0] + S.span[1]) / 2)), 2, 20);
+      Object.assign(f, { dorsal: S.dorsal, dorsalH: r(S.dorsalH), dorsalStart: r(S.dorsalAt[0]), dorsalEnd: r(S.dorsalAt[1]), dorsalLean: r(S.lean) });
+      const shark = f.species === 'shark';
+      Object.assign(f, { anal: shark ? 'shark' : 'none', analH: shark ? 2 : 0, analStart: 74, analEnd: 82, pelvic: shark,
+        pectoral: 0, flipper: r(S.flipper), finAlpha: 100, mouth: S.mouth, teeth: S.teeth,
+        lips: false, barbels: 0, lure: false, spikes: false, scales: false, lateralLine: false });
+      if (!shark) f.photophores = false;
+      if (rng) f.eyeR = f.eyeR >= 3 ? 2 : 1; // small eyes, a little bigger where the deep sea calls for it
+      f.backColor = tintWith(p(S.back), Hb.body, 0.55);
+      f.bellyColor = deep && rng ? toHex(mix(hx(f.backColor), hx(S.belly), 0.35)) : S.belly;
+      f.finColor = S.fin || toHex(sh(hx(f.backColor), 0.92));
+      f.pattern = S.pattern || 'none'; f.patternCount = S.patternCount || 1;
+      if (S.patternColor) f.patternColor = p(S.patternColor);
+      if (!deep || !rng) f.eyeColor = S.eye;
+      return fitFrame(f);
+    }
+    // Keep every species inside the 64x48 frame (also run after breeding).
+    function fitFrame(f) {
+      if (f.species === 'jelly') {
+        const room = FISH_H - 4 - f.bellH;
+        f.tentLen = clamp(f.tentLen, 0, room); f.oralLen = clamp(f.oralLen, 0, room);
+      } else f.tailLen = clamp(f.tailLen, 0, 60 - f.bodyLen - (f.tusk || 0));
+      return f;
+    }
+    // Sharks and whales start from a full fish roll (so eldritch traits and
+    // the deep-sea extras still come from the habitat), then a kind reshapes them.
+    function rollSwimmer(rng, habitat, cfg, species) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
+      const f = { species, ...rollFeatures(rng, habitat, cfg) };
+      return applyKind(f, pickW(rng, kindWeights(species, Hb)), habitat, rng);
+    }
+    function rollJelly(rng, habitat, cfg) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT], m = Hb.mods, ek = m.eldritch ?? 0, f = { species: 'jelly' };
+      applyKind(f, pickW(rng, kindWeights('jelly', Hb)), habitat, rng);
+      f.patternSeed = ri(rng, 0, 999);
+      f.rimLights = rng() < (ek >= 1 ? 0.75 : 0.08);
+      f.glowColor = pick(rng, Hb.glow);
+      f.eyeColor = pick(rng, Hb.eye);
+      const eyes = rng() < cfg.extraEyeChance * ek, eyeN = ri(rng, 2, 5);
+      f.extraEyes = eyes ? eyeN : 0;
+      f.runes = rng() < cfg.runeChance * ek;
+      f.aura = rng() < cfg.auraChance * ek;
+      f.eldritchColor = pick(rng, ELDRITCH);
+      return f;
+    }
+    // Which species a seed grows into: pinned by the caller, or rolled from
+    // the habitat's mix on its own stream.
+    function speciesFor(seedStr, habitat, species) {
+      if (species && species !== 'any' && SPECIES[species]) return species;
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
+      return pickW(makePRNG(`species|${habitat}|${seedStr}`), Hb.species);
+    }
+    // A fish keeps the exact stream it always had, so existing fish seeds
+    // render the same as before species existed.
+    function rollAny(seedStr, habitat, cfg, species) {
+      const sp = speciesFor(seedStr, habitat, species), rng = makePRNG(`fish|${habitat}|${seedStr}`);
+      if (sp === 'jelly') return rollJelly(rng, habitat, cfg);
+      if (sp === 'fish') return { species: 'fish', ...rollFeatures(rng, habitat, cfg) };
+      return rollSwimmer(rng, habitat, cfg, sp);
+    }
+
     // ---- geometry ----------------------------------------------------------
     // Head on the LEFT; faceRight mirrors at composite time.
     const BLUNT = [0.3, 0.45, 0.6, 0.8, 1.0];
     function makeGeom(f) {
-      const L = f.bodyLen, D = f.bodyDepth;
-      const tailLen = clamp(f.tailLen, 0, FISH_W - 2 - L);
-      const x0 = Math.floor((FISH_W - (L + tailLen)) / 2);
+      const L = f.bodyLen, D = f.bodyDepth, lead = f.tusk || 0; // a narwhal's tusk needs room up front
+      const tailLen = clamp(f.tailLen, 0, FISH_W - 2 - L - lead);
+      const x0 = Math.max(2, Math.floor((FISH_W - (L + tailLen + lead)) / 2) + lead);
       const up = f.backArch / 100, peak = clamp(f.peak / 100, 0.05, 0.95), taper = f.taper / 100;
       const e = BLUNT[clamp(f.headBlunt, 1, 5) - 1];
       const finUp = f.dorsal === 'none' ? 0 : f.dorsalH, finDn = f.anal === 'none' ? 0 : f.analH;
       // Centre the whole silhouette (fins included) vertically.
       const cy = Math.round(FISH_H / 2 + (D * up + finUp - D * (1 - up) - finDn) / 2);
       const half = (s) => (s < peak
-        ? Math.pow(Math.sin((Math.PI / 2) * (s / peak)), e)
+        ? (f.squareHead ? (s * L < 1.5 ? 0.85 : 1) : Math.pow(Math.sin((Math.PI / 2) * (s / peak)), e)) // sperm whale: a box of a head
         : taper + (1 - taper) * Math.pow(Math.cos((Math.PI / 2) * ((s - peak) / (1 - peak))), 1.1));
       const top = [], bot = [];
       for (let x = x0; x < x0 + L; x++) {
@@ -548,7 +729,12 @@
       }
       const xp = x0 + L;
       const headLen = clamp(Math.round(Math.min(L * 0.27, D * 0.9 + 3)), 4, 12);
-      return { L, D, x0, xp, cy, top, bot, tailLen, headLen, pedTop: top[xp - 1], pedBot: bot[xp - 1] };
+      const G = { L, D, x0, xp, cy, top, bot, tailLen, headLen, pedTop: top[xp - 1], pedBot: bot[xp - 1] };
+      if (f.hammer) { // hammerhead: a cephalofoil jutting above and below the snout
+        const hx2 = x0 + 2, ext = Math.max(2, Math.round(D * 0.45));
+        G.hammer = { x0: x0 - 1, x1: x0 + 1, top: top[hx2] - ext, bot: bot[hx2] + Math.round(ext * 0.5) };
+      }
+      return G;
     }
     const sAt = (G, x) => (x - G.x0 + 0.5) / G.L;
 
@@ -622,6 +808,10 @@
           } else plot(R, x, y, c);
         }
       }
+      if (G.hammer) { // drawn with the body so it shares the outline pass
+        const { x0, x1, top, bot } = G.hammer;
+        for (let x = x0; x <= x1; x++) for (let y = top; y <= bot; y++) plot(R, x, y, mix(back, belly, smooth(0.3, 0.9, (y - top) / (bot - top))));
+      }
     }
 
     // ---- fins (drawn behind the body) --------------------------------------
@@ -632,6 +822,8 @@
         case 'spiny':   return H * Math.pow(Math.sin(Math.PI * t), 0.5) * (x % 3 === 0 ? 1 : 0.6);
         case 'sail':    return H * Math.pow(Math.sin(Math.PI * (0.08 + 0.9 * t)), 0.35);
         case 'long':    return H * Math.min(1, t / 0.06);
+        case 'shark':   return H * (t < 0.55 ? t / 0.55 : Math.pow((1 - t) / 0.45, 0.6)); // a raked triangle
+        case 'hump':    return H * Math.pow(Math.sin(Math.PI * t), 1.2);
         default: return 0;
       }
     }
@@ -642,7 +834,7 @@
       for (let x = xa; x <= xb; x++) {
         const t = (x - xa) / Math.max(1, xb - xa), h = Math.round(finHeight(style, t, x, H));
         const base = dir < 0 ? G.top[x] : G.bot[x];
-        const c = x % 2 === 0 ? sh(fin, 0.82) : fin; // rays
+        const c = x % 2 === 0 && isFish(f) ? sh(fin, 0.82) : fin; // rays (sharks and whales have smooth fins)
         for (let j = 0; j <= h; j++) plot(R, x + Math.round(j * lean), base + dir * j, c, a);
       }
     }
@@ -656,7 +848,9 @@
       } else {
         drawEdgeFin(R, f, G, f.dorsal, s0, f.dorsal === 'long' ? 1 : s1, f.dorsalH, -1, lean);
       }
+      if (f.species === 'shark' && f.dorsal === 'shark') drawEdgeFin(R, f, G, 'shark', 0.8, 0.86, Math.max(1, Math.round(f.dorsalH * 0.3)), -1, lean); // second dorsal
     }
+    const isFish = (f) => !f.species || f.species === 'fish';
     function drawAnal(R, f, G) {
       if (f.anal === 'none' || f.analH <= 0) return;
       const s0 = f.anal === 'long' ? 0.45 : f.analStart / 100, s1 = f.anal === 'long' ? 1 : f.analEnd / 100;
@@ -696,10 +890,36 @@
         if (t < 0.55) plot(R, x + ux, y + uy, k % 3 === 1 ? sucker : under);
       }
     }
+    // A tapered stroke from (x0,y0) to (x1,y1), half-width w0 -> w1. Each
+    // pixel is plotted once, so a translucent colour doesn't stack up.
+    function lobe(R, x0, y0, x1, y1, w0, w1, c, a = 1) {
+      const n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2)), seen = new Set();
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, x = lerp(x0, x1, t), y = lerp(y0, y1, t), w = Math.max(0.35, lerp(w0, w1, t)), r = Math.ceil(w);
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy > w * w + 0.3) continue;
+          const px = Math.round(x + dx), py = Math.round(y + dy), k = px * 1000 + py;
+          if (!seen.has(k)) { seen.add(k); plot(R, px, py, c, a); }
+        }
+      }
+    }
     function drawTail(R, f, G, anim) {
       if (G.tailLen <= 0) return;
       const fin = hx(f.finColor), a = f.finAlpha / 100;
       const ped = Math.max(1, (G.pedBot - G.pedTop) / 2), cyp = Math.round((G.pedTop + G.pedBot) / 2);
+      if (f.tail === 'heterocercal') { // shark: long upper lobe sweeping up, short lower one
+        const beat = anim ? anim.tail : 0, S = f.tailSpan * (1 - 0.25 * Math.abs(beat));
+        const up = S * (f.upperLobe || 140) / 100 * 0.8, xt = G.xp + G.tailLen - 1;
+        lobe(R, G.xp - 2, cyp, xt, cyp - up + beat, ped + 0.3, 0.4, fin, a);
+        lobe(R, G.xp - 1, cyp, G.xp + Math.round(G.tailLen * 0.4), cyp + S * 0.6 + beat, ped * 0.8 + 0.3, 0.4, fin, a);
+        return;
+      }
+      if (f.tail === 'fluke') { // whale: flukes seen edge-on, beating up and down
+        const beat = anim ? anim.tail : 0, mid = G.xp + G.tailLen * 0.4;
+        lobe(R, G.xp - 2, cyp, mid, cyp + beat * 1.5, ped + 0.3, 1, fin, a);
+        lobe(R, mid, cyp + beat * 1.5, G.xp + G.tailLen - 1, cyp + beat * 3.5 - 1, 1.6, 0.5, fin, a);
+        return;
+      }
       if (f.tail === 'tentacles') {
         const n = f.tailSpan > 8 ? 4 : 3, time = anim ? anim.time : 0;
         for (let j = 0; j < n; j++) {
@@ -736,16 +956,21 @@
       return [mx, my];
     }
     function drawHead(R, f, G, anim) {
-      const back = hx(f.backColor), belly = hx(f.bellyColor);
-      // gill cover
+      const back = hx(f.backColor), belly = hx(f.bellyColor), sp = f.species || 'fish';
       const gx = G.x0 + G.headLen, gt = G.top[gx], gb = G.bot[gx];
-      if (gt !== undefined && gb - gt > 4) {
+      if (sp === 'fish' && gt !== undefined && gb - gt > 4) { // gill cover
         const mid = (gt + gb) / 2, half = (gb - gt) / 2;
         for (let y = gt + 2; y <= gb - 2; y++) darken(R, gx - Math.round(((y - mid) / half) ** 2 * 2), y, 0.72);
       }
+      for (let k = 0; k < (sp === 'shark' ? f.gillSlits || 0 : 0); k++) { // shark gill slits
+        const x = gx + k * 2; if (G.top[x] === undefined) break;
+        for (let y = Math.round(lerp(G.top[x], G.bot[x], 0.32)); y <= Math.round(lerp(G.top[x], G.bot[x], 0.66)); y++) darken(R, x, y, 0.62);
+      }
+      if (sp === 'whale') drawWhaleMarks(R, f, G);
       // mouth (before the eye, so a wide maw never paints over it)
       const [mx, my] = mouthPoint(f, G);
       if (f.maw) drawMaw(R, f, G, mx, my, anim);
+      else if (sp !== 'fish') drawBigMouth(R, f, G, mx, my, anim);
       else {
         const w = f.mouthW + (f.teeth ? 2 : 0);
         for (let i = 0; i < w; i++) {
@@ -756,8 +981,9 @@
         if (anim?.gulp) { plot(R, mx - 1, my, MOUTH); plot(R, mx, my + 1, MOUTH); plot(R, mx + 1, my + 1, MOUTH); }
       }
       // eye
-      const [ex, ey] = eyePoint(G);
-      const r = Math.min(f.eyeR, Math.max(1, Math.floor((G.bot[ex] - G.top[ex]) / 2)));
+      const [ex, ey] = eyePoint(G, f);
+      if (f.eyePatch) disc(R, ex + 3, ey - 2, 2, [244, 244, 240]); // orca's white patch, behind the eye
+      const r = G.hammer ? 1 : Math.min(f.eyeR, Math.max(1, Math.floor(((G.bot[ex] ?? ey + 2) - (G.top[ex] ?? ey - 2)) / 2)));
       const iris = hx(f.eyeColor);
       if (r === 1) { plot(R, ex, ey, PUPIL); plot(R, ex + 1, ey, iris); plot(R, ex, ey - 1, iris); }
       else {
@@ -791,10 +1017,74 @@
         }
       }
     }
-    const eyePoint = (G) => {
-      const ex = G.x0 + Math.max(2, Math.round(G.headLen * 0.42));
+    const eyePoint = (G, f = {}) => {
+      if (G.hammer) return [G.x0, G.hammer.top + 1]; // at the tip of the hammer
+      if (f.species === 'whale') { // small and low, just past the corner of the mouth
+        const ex = G.x0 + whaleMouthLen(f, G) + 2;
+        return [ex, Math.round(lerp(G.top[ex], G.bot[ex], 0.6))];
+      }
+      const ex = G.x0 + Math.max(2, Math.round(G.headLen * (f.species === 'shark' ? 0.55 : 0.42)));
       return [ex, Math.round(lerp(G.top[ex], G.bot[ex], 0.36))];
     };
+    const whaleMouthLen = (f, G) => Math.round(G.headLen * (f.squareHead ? 1.3 : 1.05));
+    // Shark and whale mouths. Sharks: an underslung crescent (or a whale
+    // shark's wide terminal slot). Whales: a long jawline curving back, or a
+    // sperm whale's narrow underslung jaw.
+    function drawBigMouth(R, f, G, mx, my, anim) {
+      if (f.species === 'shark') {
+        if (f.mouth !== 'down') { // wide filter-feeder's slot across the front
+          const w = f.mouthW + 4;
+          for (let i = 0; i < w; i++) plot(R, G.x0 + i, my + (i > w - 2 ? 1 : 0), MOUTH);
+          if (anim?.gulp) for (let i = 0; i < w - 2; i++) plot(R, G.x0 + i, my + 1, MOUTH);
+          return;
+        }
+        const w = f.mouthW + 3;
+        for (let i = 0; i <= w; i++) {
+          const x = G.x0 + 2 + i; if (G.bot[x] === undefined) break;
+          const y = G.bot[x] - 1 - Math.round(Math.sin(Math.PI * i / w) * 1.2);
+          plot(R, x, y, MOUTH);
+          if (anim?.gulp) plot(R, x, y + 1, MOUTH);
+          if (f.teeth && i % 2 === 0 && i > 0 && i < w) plot(R, x, y - 1, WHITE);
+        }
+        return;
+      }
+      const len = whaleMouthLen(f, G);
+      if (f.mouth === 'down') {
+        for (let i = 2; i <= len; i++) {
+          const x = G.x0 + i; if (G.bot[x] === undefined) break;
+          plot(R, x, G.bot[x] - 2, MOUTH);
+          if (f.teeth && i % 3 === 0) plot(R, x, G.bot[x] - 3, WHITE);
+        }
+        return;
+      }
+      for (let i = 0; i <= len; i++) {
+        const x = mx + i, y = my + Math.round(Math.pow(i / len, 2) * 2);
+        plot(R, x, y, MOUTH);
+        if (f.teeth && i % 2 === 1 && i < len - 1) plot(R, x, y + 1, WHITE);
+      }
+      if (anim?.gulp) plot(R, mx, my + 1, MOUTH);
+    }
+    // Whale surface detail: blowhole, throat pleats, head knobs, the sperm
+    // whale's wrinkled flank, and an orca's grey saddle.
+    function drawWhaleMarks(R, f, G) {
+      const bx = G.x0 + Math.round(G.headLen * 1.1);
+      if (G.top[bx] !== undefined) { darken(R, bx, G.top[bx] + 1, 0.5); darken(R, bx + 1, G.top[bx + 1] + 1, 0.6); }
+      if (f.pleats) for (let x = G.x0 + 2; x < G.x0 + G.L * 0.45; x++) {
+        for (let y = G.bot[x] - 1; y > lerp(G.top[x], G.bot[x], 0.62); y -= 2) darken(R, x, y, 0.84);
+      }
+      if (f.tusk > 0) { // narwhal: a spiralled ivory lance out of the upper lip
+        const ty = Math.round((G.top[G.x0] + G.bot[G.x0]) / 2);
+        for (let k = 1; k <= f.tusk; k++) plot(R, G.x0 - k, ty - Math.round(k * 0.12), k % 3 ? [236, 230, 210] : [190, 180, 156]);
+      }
+      if (f.knobs) for (let x = G.x0 + 1; x < G.x0 + G.headLen; x += 2) plot(R, x, G.top[x] + 1, sh(hx(f.backColor), 0.6));
+      if (f.squareHead) for (let x = Math.round(G.x0 + G.L * 0.45); x < G.xp; x++) {
+        for (let y = G.top[x] + 1; y < G.bot[x]; y++) if (hash(x * 2, y + f.patternSeed) > 0.88) darken(R, x, y, 0.82);
+      }
+      if (f.eyePatch) {
+        const sx = G.x0 + Math.round(G.L * f.dorsalEnd / 100) + 1, grey = [150, 156, 162];
+        for (let x = sx; x < sx + 5 && G.top[x] !== undefined; x++) { plot(R, x, G.top[x] + 1, grey, 0.8); plot(R, x, G.top[x] + 2, grey, 0.5); }
+      }
+    }
     // A gaping wedge of a mouth lined with needle teeth, cut into the head.
     function drawMaw(R, f, G, mx, my, anim) {
       const len = Math.max(4, G.headLen + 1);
@@ -812,7 +1102,19 @@
         }
       }
     }
+    // Shark and whale pectorals: one long flipper raking down and back, with
+    // a darker rim since it's drawn over the already-outlined body.
+    function drawFlipper(R, f, G, anim) {
+      if (!(f.flipper > 0)) return;
+      const ax = G.x0 + G.headLen + (f.species === 'shark' ? (f.gillSlits || 0) * 2 : 3);
+      if (G.top[ax] === undefined) return;
+      const ay = Math.round(lerp(G.top[ax], G.bot[ax], 0.7)), flap = anim ? anim.pect : 0, len = f.flipper;
+      const tx = ax + len * 0.55, ty = ay + len * 0.8 + flap * 1.5, w0 = f.flipper > 10 ? 1.3 : 1.6, fin = hx(f.finColor);
+      lobe(R, ax, ay, tx, ty, w0 + 0.8, 0.9, sh(fin, 0.6));
+      lobe(R, ax, ay, tx, ty, w0, 0.35, fin);
+    }
     function drawPectoral(R, f, G, anim) {
+      if (!isFish(f)) { drawFlipper(R, f, G, anim); return; }
       if (f.pectoral <= 0) return;
       const fin = hx(f.finColor), a = (f.finAlpha / 100) * 0.8;
       const ax = G.x0 + G.headLen + 1;
@@ -869,7 +1171,7 @@
         }
       }
       if (f.extraEyes > 0) { // eyes where no eyes should be, each blinking on its own clock
-        const [mex, mey] = eyePoint(G), lid = sh(back, 0.55);
+        const [mex, mey] = eyePoint(G, f), lid = sh(back, 0.55);
         for (let i = 0; i < f.extraEyes; i++) {
           const x = G.x0 + Math.round(G.L * (0.3 + 0.62 * hash(i * 13 + seed, 7)));
           if (G.top[x] === undefined || G.bot[x] - G.top[x] < 5) continue;
@@ -897,7 +1199,7 @@
     // Wispy halo hugging the silhouette — a fish that is not entirely here.
     function voidAura(fish, f, anim) {
       const R = raster(), eld = hx(f.eldritchColor), pulse = anim ? anim.glow : 1, tick = anim ? Math.floor(anim.time * 6) : 0;
-      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && fish[(y * FISH_W + x) * 4 + 3] >= 128;
+      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && fish[(y * FISH_W + x) * 4 + 3] >= SOLID_A;
       for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
         if (solid(x, y)) continue;
         let a = 0;
@@ -960,7 +1262,9 @@
       return g;
     }
 
-    const solidIn = (R) => (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= 128;
+    // "Solid" for effect passes includes translucent fins, tentacles and bells.
+    const SOLID_A = 40;
+    const solidIn = (R) => (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= SOLID_A;
     function bbox(R) {
       let x0 = FISH_W, y0 = FISH_H, x1 = -1, y1 = -1;
       const solid = solidIn(R);
@@ -1138,6 +1442,118 @@
       plot(R, x, y, c, a * 0.15);
     }
 
+    // ---- jellyfish ---------------------------------------------------------
+    // Upright, bell on top. The bell pulses (wider and shorter on the beat)
+    // and the tentacles trail in a wave that runs down their length.
+    const BELLS = { // half-width profile, 0 at the apex .. 1 at the rim
+      dome: (v) => Math.sqrt(Math.max(0, 1 - (1 - v) ** 2)),
+      flat: (v) => Math.pow(Math.max(0, 1 - (1 - v) ** 2), 0.3),
+      bell: (v) => Math.pow(Math.sin((Math.PI / 2) * v), 0.7) * (0.75 + 0.25 * v),
+      box:  (v) => (v < 0.2 ? 0.7 + 1.5 * v : 1),
+      oval: (v) => Math.sqrt(Math.max(0, 1 - (2 * v - 1) ** 2)), // a comb jelly is a closed lozenge
+    };
+    function jellyGeom(f, anim) {
+      const pulse = anim ? Math.sin(anim.time * 2.4 + (f.patternSeed % 7)) : 0;
+      const reach = Math.max(f.tentN ? f.tentLen : 0, f.oralArms ? f.oralLen : 0);
+      const top = Math.max(2, Math.round((FISH_H - f.bellH - reach) / 2));
+      const W = f.bellW * (1 + 0.08 * pulse), H = Math.max(4, f.bellH * (1 - 0.1 * pulse));
+      return { cx: (FISH_W - 1) / 2, top, W, H, rim: Math.round(top + H), pulse, time: anim ? anim.time : 0 };
+    }
+    const bellHalf = (f, J, y) => { const v = (y - J.top) / J.H; return v < 0 || v > 1 ? -1 : (J.W / 2) * (BELLS[f.bellShape] || BELLS.dome)(v); };
+    function jellyMark(f, J, x, y, v) {
+      switch (f.markings) {
+        case 'rings': { // moon jelly: four horseshoe gonads seen through the bell
+          const ry = J.top + J.H * 0.42;
+          for (let i = 0; i < 4; i++) {
+            const d = Math.hypot(x - (J.cx + (i - 1.5) * J.W * 0.17), (y - ry) * 1.2);
+            if (Math.abs(d - 1.6) < 0.7) return 0.9;
+          }
+          return 0;
+        }
+        case 'stripes': { // radial stripes fanning from above the apex
+          if (v < 0.15) return 0;
+          const ang = Math.atan2(x - J.cx, y - (J.top - J.H * 0.5));
+          return Math.floor(ang * 9 + 100) % 2 === 0 ? 0.55 : 0;
+        }
+        case 'spots': return hash(x + f.patternSeed, y) > 0.86 ? 0.8 : 0;
+        default: return 0; // 'comb' rows are drawn animated, over the outline
+      }
+    }
+    function drawBell(R, f, J) {
+      const back = hx(f.backColor), belly = hx(f.bellyColor), pat = hx(f.patternColor), a0 = f.bellAlpha / 100;
+      for (let y = J.top; y <= J.rim; y++) {
+        const hw = bellHalf(f, J, y); if (hw < 0) continue;
+        const v = (y - J.top) / J.H;
+        for (let x = Math.round(J.cx - hw); x <= Math.round(J.cx + hw); x++) {
+          const dx = (x - J.cx) / Math.max(hw, 0.5);
+          const edge = Math.abs(dx) > 0.82 || y === J.top;
+          const cavity = f.bellShape !== 'oval' && v > 0.5 && Math.abs(dx) < 0.7; // the hollow underside
+          let c = mix(back, belly, v * 0.45 + (cavity ? 0.35 : 0));
+          let a = cavity ? a0 * 0.75 : edge ? Math.min(1, a0 + 0.3) : a0;
+          const m = jellyMark(f, J, x, y, v);
+          if (m) { c = mix(c, pat, m); a = Math.max(a, 0.85 * m); }
+          if (dx < -0.25 && dx > -0.7 && v > 0.12 && v < 0.4) c = mix(c, [255, 255, 255], 0.35); // gloss
+          plot(R, x, y, c, a);
+        }
+      }
+      if (f.bellShape !== 'oval') { // scalloped margin
+        const hw = J.W / 2 * BELLS[f.bellShape](1), rimC = mix(back, [255, 255, 255], 0.35);
+        for (let x = Math.round(J.cx - hw); x <= Math.round(J.cx + hw); x++) if (!f.frilly || x % 2 === 0) plot(R, x, J.rim + 1, rimC, 0.85);
+      }
+    }
+    // Tentacles off the rim and oral arms from the centre, drawn behind the bell.
+    function drawJellyTrailers(R, f, J) {
+      const fin = hx(f.finColor), t = J.time, seed = f.patternSeed;
+      const spread = f.bellShape === 'oval' ? 2 : (J.W / 2) * 0.85;
+      for (let i = 0; i < f.tentN; i++) {
+        const u = f.tentN === 1 ? 0 : (i / (f.tentN - 1)) * 2 - 1, x0 = J.cx + u * spread, ph = i * 1.37 + seed;
+        for (let k = 1; k <= f.tentLen; k++) {
+          const sway = Math.sin(k * 0.28 - t * 2.6 + ph) * Math.min(2.5, k * 0.14) - J.pulse * u * k * 0.05;
+          plot(R, Math.round(x0 + sway), J.rim + k, fin, 0.9 - 0.55 * k / f.tentLen);
+        }
+      }
+      const arm = mix(hx(f.bellyColor), hx(f.patternColor), 0.35);
+      for (let j = 0; j < f.oralArms; j++) {
+        const x0 = J.cx + (j - (f.oralArms - 1) / 2) * 2.2;
+        for (let k = 0; k <= f.oralLen; k++) {
+          const sway = Math.sin(k * 0.2 - t * 1.6 + j * 2) * Math.min(2, k * 0.12), x = Math.round(x0 + sway), y = J.rim - 1 + k;
+          plot(R, x, y, arm, 0.9);
+          if (k < f.oralLen * 0.8) plot(R, x + 1, y, sh(arm, 0.85), 0.85);
+          if (f.frilly && hash(k + j * 31, seed) > 0.45) plot(R, x + (k % 2 ? 2 : -1), y, arm, 0.7);
+        }
+      }
+    }
+    // Comb rows, rim lights, and the eldritch extras a bell can carry.
+    function drawJellyExtras(R, f, J, anim) {
+      const glow = hx(f.glowColor), pulse = anim ? anim.glow : 1, seed = f.patternSeed, tick = Math.floor(J.time * 8);
+      if (f.markings === 'comb') { // rainbow-shimmering cilia rows
+        [-0.6, -0.2, 0.2, 0.6].forEach((r, ri2) => {
+          for (let y = J.top + 1; y < J.rim; y++) {
+            const hw = bellHalf(f, J, y); if (hw < 1) continue;
+            const col = hueShift([255, 90, 90], (y * 35 + J.time * 240 + ri2 * 90) % 360);
+            plot(R, Math.round(J.cx + r * hw), y, col, (y + tick) % 2 ? 0.9 : 0.45);
+          }
+        });
+      }
+      if (f.rimLights) for (let y = J.top + 2; y <= J.rim; y += 2) {
+        const hw = bellHalf(f, J, y); if (hw < 1) continue;
+        const tw = 0.55 + 0.45 * Math.sin(J.time * 3 + y) * pulse;
+        for (const s of [-1, 1]) plot(R, Math.round(J.cx + s * hw), y, glow, tw);
+      }
+      const eld = hx(f.eldritchColor);
+      if (f.runes) {
+        const glyph = GLYPHS[seed % GLYPHS.length], x = Math.round(J.cx) - 1, y = Math.round(J.top + J.H * 0.3);
+        for (let gy = 0; gy < 3; gy++) for (let gx = 0; gx < 3; gx++) if (glyph[gy][gx]) plot(R, x + gx, y + gy, eld, 0.55 + 0.45 * pulse);
+      }
+      for (let i = 0; i < (f.extraEyes || 0); i++) { // eyes in the jelly, blinking out of step
+        const x = Math.round(J.cx + (hash(i * 13 + seed, 7) - 0.5) * J.W * 0.6);
+        const y = Math.round(J.top + J.H * (0.25 + 0.4 * hash(seed, i * 31 + 3)));
+        if (anim && Math.sin(J.time * 1.3 + i * 2.1) > 0.96) { hLine3(R, x, y, sh(hx(f.backColor), 0.5)); continue; }
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!(dx && dy)) plot(R, x + dx, y + dy, i % 2 ? eld : hx(f.eyeColor));
+        plot(R, x, y, PUPIL);
+      }
+    }
+
     // ---- entry points ------------------------------------------------------
     // Paint a fish from an explicit feature object into a FISH_W x FISH_H 2D
     // context. All drawing happens in plain RGBA buffers; the context is only
@@ -1146,20 +1562,32 @@
       const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
       const scene = cfg.scene || Hb.scene;
       const f = effectColours(f0); // mutation effects recolour a copy, never the caller's object
-      const G = makeGeom(f);
+      const jelly = f.species === 'jelly';
       const out = raster();
       if (!cfg.transparentBackground) paintBackground(out, habitat, scene, cfg, bgSeed, anim);
-      if (anim && hasFx(f, 'frozen')) anim = { ...anim, waveAmp: anim.waveAmp * 0.35, tail: anim.tail * 0.35, pect: anim.pect * 0.35 };
+      if (anim && hasFx(f, 'frozen')) anim = { ...anim, waveAmp: anim.waveAmp * 0.35, tail: anim.tail * 0.35, pect: anim.pect * 0.35, time: anim.time * 0.5 };
+      if (anim && jelly) anim = { ...anim, waveAmp: 0, bob: Math.round(Math.sin(anim.time * 0.9 + 1) * 1.5) }; // drifts, doesn't swim
 
       const fins = raster(), body = raster();
-      drawTail(fins, f, G, anim); drawDorsal(fins, f, G); drawAnal(fins, f, G); drawPelvic(fins, f, G);
-      edgeDarken(fins, 0.7);
-      drawBody(body, f, G);
-      if (hasFx(f, 'spotted')) spotCoat(body, f);
-      edgeDarken(body, 0.6);
-      drawHead(body, f, G, anim);
-      drawPectoral(body, f, G, anim);
-      drawExtras(body, f, G, anim);
+      let G = null;
+      if (jelly) {
+        const J = jellyGeom(f, anim);
+        drawJellyTrailers(fins, f, J);
+        drawBell(body, f, J);
+        if (hasFx(f, 'spotted')) spotCoat(body, f);
+        edgeDarken(body, 0.8);
+        drawJellyExtras(body, f, J, anim);
+      } else {
+        G = makeGeom(f);
+        drawTail(fins, f, G, anim); drawDorsal(fins, f, G); drawAnal(fins, f, G); drawPelvic(fins, f, G);
+        edgeDarken(fins, 0.7);
+        drawBody(body, f, G);
+        if (hasFx(f, 'spotted')) spotCoat(body, f);
+        edgeDarken(body, 0.6);
+        drawHead(body, f, G, anim);
+        drawPectoral(body, f, G, anim);
+        drawExtras(body, f, G, anim);
+      }
       over(fins, body);
       const fish = applyEffects(f.aura ? voidAura(fins, f, anim) : fins, f, anim);
 
@@ -1168,7 +1596,7 @@
       for (let x = 0; x < FISH_W; x++) {
         let dy = 0;
         if (anim) {
-          const w = clamp((x - (G.x0 + G.L * 0.3)) / (G.L * 0.7 + G.tailLen), 0, 1);
+          const w = G ? clamp((x - (G.x0 + G.L * 0.3)) / (G.L * 0.7 + G.tailLen), 0, 1) : 0;
           dy = Math.round(anim.waveAmp * w * Math.sin(anim.wave - x * 0.25)) + anim.bob;
         }
         const dx = flip ? FISH_W - 1 - x : x;
@@ -1179,7 +1607,8 @@
       }
 
       // Bubbles rise from the mouth: a steady stream when animated, a seeded
-      // few frozen in place otherwise.
+      // few frozen in place otherwise. (Jellyfish don't breathe air bubbles.)
+      if (jelly) { ctx.putImageData(new ImageData(out, FISH_W, FISH_H), 0, 0); return f0; }
       const [mx0, my] = mouthPoint(f, G), mx = flip ? FISH_W - 1 - mx0 : mx0;
       const bc = hx(scene.bubble);
       if (anim) {
@@ -1198,16 +1627,17 @@
       return f0;
     }
 
-    // Draw one fish, deriving every feature from (seed, habitat).
-    function drawFish(ctx, seedStr, habitat = FIRST_HABITAT, config = {}) {
+    // Draw one creature, deriving every feature from (seed, habitat). `species`
+    // pins the body plan ('fish' | 'shark' | 'whale' | 'jelly'); leave it null
+    // (or 'any') to let the habitat's species mix decide.
+    function drawFish(ctx, seedStr, habitat = FIRST_HABITAT, config = {}, species = null) {
       const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
-      const f = rollFeatures(makePRNG(`fish|${habitat}|${seedStr}`), habitat, cfg);
+      const f = rollAny(seedStr, habitat, cfg, species);
       return paintFish(ctx, f, habitat, cfg, Math.floor(hash(seedStr.length, f.patternSeed) * 1000));
     }
     // The rolled feature object for a seed — a starting point for manual editing.
-    function featuresFromSeed(seedStr, habitat = FIRST_HABITAT, config = {}) {
-      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
-      return rollFeatures(makePRNG(`fish|${habitat}|${seedStr}`), habitat, cfg);
+    function featuresFromSeed(seedStr, habitat = FIRST_HABITAT, config = {}, species = null) {
+      return rollAny(seedStr, habitat, { ...DEFAULT_FISH_CONFIG, ...config }, species);
     }
     // Draw from an explicit feature object (creator), bypassing the roll.
     function drawFishFeatures(ctx, features, habitat = FIRST_HABITAT, config = {}, anim = null) {
@@ -1229,8 +1659,8 @@
       };
     }
     // Browser-only: nearest-neighbour upscale to `width` (height keeps 4:3).
-    function renderFishDataURL(seedStr, habitat = FIRST_HABITAT, width = 128, config = {}) {
-      return upscaledDataURL((ctx) => drawFish(ctx, seedStr, habitat, config), width);
+    function renderFishDataURL(seedStr, habitat = FIRST_HABITAT, width = 128, config = {}, species = null) {
+      return upscaledDataURL((ctx) => drawFish(ctx, seedStr, habitat, config, species), width);
     }
     function renderFishFeaturesDataURL(features, habitat = FIRST_HABITAT, width = 128, config = {}) {
       return upscaledDataURL((ctx) => drawFishFeatures(ctx, features, habitat, config), width);
@@ -1315,28 +1745,72 @@
 
       { group: `Mutation effects (max ${MAX_EFFECTS})`, key: 'effects', type: 'flags', label: 'Effects',
         options: EFFECT_KEYS.map((k) => [`${EFFECTS[k].icon} ${EFFECTS[k].label}`, k]), max: MAX_EFFECTS },
+
+      // Species-specific. `only` lists the species a field applies to; fields
+      // without one apply to the side-on swimmers (fish, sharks, whales).
+      { group: 'Kind', key: 'kind', type: 'enum', label: 'Kind preset', only: ['shark', 'whale', 'jelly'],
+        options: (f) => Object.keys(KINDS[f.species] || {}).map((k) => [KIND_LABELS[k] || k, k]),
+        set: (f, v, hab) => applyKind(f, v, hab), rebuild: true },
+      { group: 'Shark & whale', key: 'flipper', type: 'int', label: 'Flipper length', min: 0, max: 16, only: ['shark', 'whale'] },
+      { group: 'Shark & whale', key: 'upperLobe', type: 'int', label: 'Upper tail lobe %', min: 100, max: 320, only: ['shark'] },
+      { group: 'Shark & whale', key: 'gillSlits', type: 'int', label: 'Gill slits', min: 0, max: 7, only: ['shark'] },
+      { group: 'Shark & whale', key: 'hammer', type: 'bool', label: 'Hammer head', only: ['shark'] },
+      { group: 'Shark & whale', key: 'squareHead', type: 'bool', label: 'Square head', only: ['whale'] },
+      { group: 'Shark & whale', key: 'tusk', type: 'int', label: 'Tusk', min: 0, max: 16, only: ['whale'] },
+      { group: 'Shark & whale', key: 'pleats', type: 'bool', label: 'Throat pleats', only: ['whale'] },
+      { group: 'Shark & whale', key: 'knobs', type: 'bool', label: 'Head knobs', only: ['whale'] },
+      { group: 'Shark & whale', key: 'eyePatch', type: 'bool', label: 'Eye patch', only: ['whale'] },
+      { group: 'Jellyfish', key: 'bellShape', type: 'enum', label: 'Bell', options: BELL_SHAPES.map(t1), only: ['jelly'] },
+      { group: 'Jellyfish', key: 'bellW', type: 'int', label: 'Bell width', min: 8, max: 30, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'bellH', type: 'int', label: 'Bell height', min: 5, max: 22, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'bellAlpha', type: 'int', label: 'Bell opacity %', min: 25, max: 100, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'tentN', type: 'int', label: 'Tentacles', min: 0, max: 28, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'tentLen', type: 'int', label: 'Tentacle length', min: 0, max: 34, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'oralArms', type: 'int', label: 'Oral arms', min: 0, max: 4, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'oralLen', type: 'int', label: 'Arm length', min: 0, max: 28, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'frilly', type: 'bool', label: 'Frilly', only: ['jelly'] },
+      { group: 'Jellyfish', key: 'markings', type: 'enum', label: 'Markings', options: MARKINGS.map(t1), only: ['jelly'] },
+      { group: 'Jellyfish', key: 'rimLights', type: 'bool', label: 'Rim lights', only: ['jelly'] },
     ];
+    { // Shared by every species (jellies included) / fish-only fields.
+      const shared = ['backColor', 'bellyColor', 'finColor', 'patternColor', 'patternSeed', 'glowColor', 'eyeColor',
+        'extraEyes', 'runes', 'aura', 'eldritchColor', 'effects'];
+      // What the shared colours are called on a jellyfish (all under one group).
+      const jellyLabels = { backColor: 'Bell', bellyColor: 'Inner bell', finColor: 'Tentacles', patternColor: 'Markings / arms',
+        glowColor: 'Rim-light colour', eyeColor: 'Iris (extra eyes)', patternSeed: 'Pattern seed' };
+      for (const field of FEATURE_SCHEMA) {
+        if (jellyLabels[field.key]) field.jelly = { group: 'Colour', label: jellyLabels[field.key] };
+        if (shared.includes(field.key)) field.only = ALL_SPECIES;
+        else if (field.key === 'shape' || field.key === 'pectoral') field.only = ['fish'];
+        else field.only ??= SWIMMERS;
+      }
+    }
     const SCHEMA_BY_KEY = Object.fromEntries(FEATURE_SCHEMA.map((f) => [f.key, f]));
+    const fieldsFor = (f) => FEATURE_SCHEMA.filter((field) => field.only.includes(f.species || 'fish'))
+      .map((field) => (f.species === 'jelly' && field.jelly ? { ...field, ...field.jelly } : field));
 
     // ---- breeding ----------------------------------------------------------
     // Genes that travel together, so a child inherits a recognisable tail or
     // dorsal fin from one parent instead of a mash of unrelated numbers. Every
     // other feature is its own gene.
+    // A group only uses the keys its species has, so one table serves all.
+    // The kind travels with the body it shaped, so a hammerhead x thresher
+    // child is one or the other up front, but may borrow the other's tail.
     const GENE_LINKS = [
-      ['shape', 'bodyLen', 'bodyDepth', 'peak', 'headBlunt', 'taper', 'backArch'],
-      ['tail', 'tailLen', 'tailSpan'],
+      ['shape', 'kind', 'bodyLen', 'bodyDepth', 'peak', 'headBlunt', 'taper', 'backArch', 'hammer', 'squareHead', 'gillSlits', 'tusk',
+        'bellShape', 'bellW', 'bellH'],
+      ['tail', 'tailLen', 'tailSpan', 'upperLobe'],
       ['dorsal', 'dorsalH', 'dorsalStart', 'dorsalEnd', 'dorsalLean'],
       ['anal', 'analH', 'analStart', 'analEnd'],
       ['pattern', 'patternCount', 'patternSeed'],
       ['barbels', 'barbelLen'],
       ['tentacles', 'tentacleLen'],
+      ['eyePatch', 'pleats', 'knobs'],
+      ['tentN', 'tentLen'],
+      ['oralArms', 'oralLen', 'frilly'],
     ];
-    // Cross two fish of the same habitat. Each gene group comes from one
-    // parent; within it a number may land anywhere between the two parents and
-    // a colour may blend. A `mutation` share of genes is taken instead from a
-    // fresh fish of the habitat, so mutations stay native to it. Deterministic:
-    // the same parents + seedStr always give the same child. Returns the child
-    // and, per feature, where it came from ('A' | 'B' | 'mix' | 'mut').
+    // Only the same species can breed (kinds within a species are fine).
+    const canBreed = (a, b) => (a.species || 'fish') === (b.species || 'fish');
     // Mutation effects for a child, from their own stream so they never shift
     // the gene rolls. Each effect a parent carries passes on 35% of the time
     // (65% if both carry it); then fresh effects roll, each one rarer than the
@@ -1357,13 +1831,23 @@
       return { effects: EFFECT_KEYS.filter((k) => effects.includes(k)), fresh };
     }
 
+    // Cross two creatures of the same species and habitat. Each gene group
+    // comes from one parent; within it a number may land anywhere between the
+    // two parents and a colour may blend. A `mutation` share of genes is taken
+    // instead from a fresh creature of that species and habitat, so mutations
+    // stay native to both. Deterministic: the same parents + seedStr always
+    // give the same child. Returns the child, per feature where it came from
+    // ('A' | 'B' | 'mix' | 'mut'), and which mutation effects were new.
+    // Throws if the parents are different species.
     function breedFeatures(a, b, seedStr, habitat = FIRST_HABITAT, config = {}, mutation = 0.05, effectChance = 0.15) {
-      const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
+      if (!canBreed(a, b)) throw new Error(`Can't cross a ${SPECIES[a.species || 'fish'].label} with a ${SPECIES[b.species || 'fish'].label}`);
+      const cfg = { ...DEFAULT_FISH_CONFIG, ...config }, species = a.species || 'fish';
       const rng = makePRNG(`breed|${habitat}|${seedStr}`);
-      const mutant = featuresFromSeed(`mutant|${seedStr}`, habitat, cfg);
+      const mutant = featuresFromSeed(`mutant|${seedStr}`, habitat, cfg, species);
       const linked = new Set(GENE_LINKS.flat());
-      const groups = [...GENE_LINKS, ...Object.keys(mutant).filter((k) => !linked.has(k)).map((k) => [k])];
-      const child = {}, origin = {};
+      const groups = [...GENE_LINKS.map((g) => g.filter((k) => k in mutant)).filter((g) => g.length),
+        ...Object.keys(mutant).filter((k) => !linked.has(k) && k !== 'species').map((k) => [k])];
+      const child = { species }, origin = {};
       for (const group of groups) {
         const fromA = rng() < 0.5;
         for (const key of group) {
@@ -1377,7 +1861,7 @@
           child[key] = v; origin[key] = o;
         }
       }
-      child.tailLen = clamp(child.tailLen, 0, 60 - child.bodyLen);
+      fitFrame(child);
       const { effects, fresh } = rollEffects(a, b, seedStr, habitat, effectChance);
       child.effects = effects;
       return { child, origin, freshEffects: fresh };
@@ -1387,7 +1871,8 @@
     // lab UI
     // =======================================================================
     const $ = (id) => document.getElementById(id);
-    const habitatSel = $('habitat'), seedInput = $('seed'), sizeSel = $('size');
+    const habitatSel = $('habitat'), speciesSel = $('species'), seedInput = $('seed'), sizeSel = $('size');
+    const pinnedSpecies = () => (speciesSel.value === 'any' ? null : speciesSel.value);
 
     let habitat = Object.keys(HABITATS)[0];
     let scenes = Object.fromEntries(Object.entries(HABITATS).map(([k, h]) => [k, { ...h.scene }])); // working copy
@@ -1400,13 +1885,16 @@
     // only ever crosses two fish of the current habitat.
     const parents = { A: null, B: null };
     let mutation = 0.05, effectChance = 0.15, litterSeed = 'litter_1';
+    let anchor = 'A', penNotice = ''; // anchor: the parent whose species the other must match
     const LITTER = 16;
 
     function freshGallery() { return Array.from({ length: 48 }, () => 'g_' + Math.floor(Math.random() * 1e9).toString(36)); }
     const cfgFor = (hab) => ({ ...config, scene: scenes[hab] });
-    const url = (seed, hab, w) => renderFishDataURL(seed, hab, w, cfgFor(hab));
+    const url = (seed, hab, w) => renderFishDataURL(seed, hab, w, cfgFor(hab), pinnedSpecies());
 
     for (const [key, h] of Object.entries(HABITATS)) habitatSel.add(new Option(h.label, key));
+    speciesSel.add(new Option('Habitat mix', 'any'));
+    for (const [key, s] of Object.entries(SPECIES)) speciesSel.add(new Option(`${s.icon} ${s.plural}`, key));
 
     function buildConfigControls() {
       const cfg = $('cfg'); cfg.innerHTML = '';
@@ -1436,7 +1924,8 @@
       const cell = document.createElement('div'); cell.className = 'cell';
       const img = document.createElement('img');
       img.width = w; img.height = Math.round(w * FISH_H / FISH_W);
-      img.src = url(seed, hab, w); img.title = `${HABITATS[hab].label} · ${seed}`;
+      img.src = url(seed, hab, w);
+      img.title = `${SPECIES[speciesFor(seed, hab, pinnedSpecies())].label} · ${HABITATS[hab].label} · ${seed}`;
       img.addEventListener('click', () => { habitat = hab; habitatSel.value = hab; seedInput.value = seed; buildPaletteControls(); renderAll(); });
       cell.appendChild(img);
       if (cap) { const c = document.createElement('div'); c.className = 'cap'; c.textContent = cap; cell.appendChild(c); }
@@ -1452,10 +1941,11 @@
     // ---- creator ----
     const fieldGet = (field) => (field.get ? field.get(features) : features[field.key]);
     const fieldSet = (field, v) => {
-      field.set ? field.set(features, v) : (features[field.key] = v);
+      field.set ? field.set(features, v, habitat) : (features[field.key] = v);
       field.rebuild ? renderCreator() : updateCreatorPreview();
     };
-    const normOpts = (field) => field.options.map((o) => (Array.isArray(o) ? o : [o, o]));
+    const normOpts = (field) => (typeof field.options === 'function' ? field.options(features) : field.options)
+      .map((o) => (Array.isArray(o) ? o : [o, o]));
     const mkBtn = (text, onClick) => { const b = document.createElement('button'); b.textContent = text; b.addEventListener('click', onClick); return b; };
 
     function buildFieldControl(field) {
@@ -1527,11 +2017,19 @@
       else { cancelAnimationFrame(animRAF); paintCreator(null); }
     }
 
-    function loadFeatures(seed) { features = featuresFromSeed(seed, habitat, config); }
+    function loadFeatures(seed) { features = featuresFromSeed(seed, habitat, config, pinnedSpecies()); }
+    // Send the creator's fish to the pen. It becomes the anchor parent: if
+    // the other parent is a different species, that one gets re-rolled.
+    function creatorToParent(slot) {
+      setParent(slot, structuredClone(features), 'from creator', 0);
+      anchor = slot;
+      if (pinnedSpecies() && pinnedSpecies() !== features.species) speciesSel.value = features.species;
+      setMode('breed');
+    }
 
     function renderCreator() {
       const main = $('main'); main.innerHTML = '';
-      if (!features) loadFeatures(seedInput.value || 'fish_1000');
+      if (!features || (pinnedSpecies() && (features.species || 'fish') !== pinnedSpecies())) loadFeatures(seedInput.value || 'fish_1000');
       const wrap = document.createElement('div'); wrap.className = 'creator';
       const col = document.createElement('div');
       const canvas = document.createElement('canvas'); canvas.id = 'creator-canvas'; canvas.width = 512; canvas.height = 384;
@@ -1543,17 +2041,18 @@
         mkBtn('🎲 Randomize', () => { loadFeatures('rand_' + Math.random().toString(36).slice(2)); renderCreator(); }),
         mkBtn(animOn ? '⏸ Stop' : '▶ Swim', (e) => { setAnim(!animOn); e.target.textContent = animOn ? '⏸ Stop' : '▶ Swim'; }),
         mkBtn('Copy JSON', async () => { jsonOut.value = JSON.stringify(features); jsonOut.style.display = 'block'; try { await navigator.clipboard.writeText(jsonOut.value); } catch { /* shown in textarea */ } }),
-        mkBtn('🧬 → Parent A', () => { setParent('A', structuredClone(features), 'from creator', 0); setMode('breed'); }),
-        mkBtn('🧬 → Parent B', () => { setParent('B', structuredClone(features), 'from creator', 0); setMode('breed'); }),
+        mkBtn('🧬 → Parent A', () => creatorToParent('A')),
+        mkBtn('🧬 → Parent B', () => creatorToParent('B')),
       );
       col.append(btns, jsonOut);
       wrap.appendChild(col);
       const groupsWrap = document.createElement('div'); groupsWrap.className = 'creator-groups';
       const order = [], byGroup = new Map();
-      for (const field of FEATURE_SCHEMA) {
+      for (const field of fieldsFor(features)) {
         if (!byGroup.has(field.group)) { byGroup.set(field.group, []); order.push(field.group); }
         byGroup.get(field.group).push(field);
       }
+      for (const g of ['Jellyfish', 'Shark & whale', 'Kind']) if (order.includes(g)) order.unshift(...order.splice(order.indexOf(g), 1)); // species groups first
       for (const g of order) {
         const sect = document.createElement('div');
         const title = document.createElement('div'); title.className = 'cgroup-title'; title.textContent = g;
@@ -1562,16 +2061,33 @@
         sect.append(title, grid); groupsWrap.appendChild(sect);
       }
       wrap.appendChild(groupsWrap);
-      section('Fish creator', wrap);
+      const sp = SPECIES[features.species || 'fish'];
+      section(`${sp.icon} ${sp.label} creator${features.kind ? ` · ${KIND_LABELS[features.kind] || features.kind}` : ''}`, wrap);
       updateCreatorPreview();
     }
 
     // ---- breeding pen ----
     function setParent(slot, feats, label, gen, seed = null) { parents[slot] = { features: feats, label, gen, seed, hab: habitat }; }
-    function seedParent(slot, seed) { setParent(slot, featuresFromSeed(seed, habitat, config), seed, 0, seed); }
+    function seedParent(slot, seed, species = null) { setParent(slot, featuresFromSeed(seed, habitat, config, species), seed, 0, seed); }
+    const speciesOf = (p) => p.features.species || 'fish';
+    const otherSlot = (s) => (s === 'A' ? 'B' : 'A');
+    // Seeding a slot: the pinned species if there is one; otherwise the
+    // anchor parent rolls freely from the habitat and the other must match it.
+    const seedSpeciesFor = (slot) => pinnedSpecies() || (slot === anchor || !parents[anchor] ? null : speciesOf(parents[anchor]));
+    // Both parents must be from this habitat, of the pinned species (if any),
+    // and of the same species as each other. The anchor (the parent the user
+    // last placed by hand) wins; the other is re-rolled to match.
     function ensureParents() {
-      if (parents.A?.hab !== habitat) seedParent('A', parents.A?.seed || 'fish_1000');
-      if (parents.B?.hab !== habitat) seedParent('B', parents.B?.seed || 'fish_2000');
+      const pinned = pinnedSpecies(), defaults = { A: 'fish_1000', B: 'fish_2000' };
+      for (const s of [anchor, otherSlot(anchor)]) {
+        const p = parents[s];
+        if (!p || p.hab !== habitat || (pinned && speciesOf(p) !== pinned)) seedParent(s, p?.seed || defaults[s], seedSpeciesFor(s));
+      }
+      const o = otherSlot(anchor), sp = speciesOf(parents[anchor]);
+      if (speciesOf(parents[o]) !== sp) {
+        seedParent(o, parents[o].seed || defaults[o], sp);
+        penNotice = `Parent ${o} was re-rolled as a ${SPECIES[sp].label}: only the same species can breed.`;
+      }
     }
     const featImg = (feats, w) => {
       const img = document.createElement('img');
@@ -1599,16 +2115,20 @@
       const row = document.createElement('div'); row.className = 'seed-row';
       const input = document.createElement('input'); input.type = 'text'; input.spellcheck = false;
       input.value = p.seed ?? ''; input.placeholder = 'seed';
-      input.addEventListener('change', () => { if (input.value) { seedParent(slot, input.value); renderBreeding(); } });
-      row.append(input, mkBtn('🎲', () => { seedParent(slot, 'fish_' + Math.floor(Math.random() * 1e9).toString(36)); renderBreeding(); }));
+      input.addEventListener('change', () => { if (input.value) { seedParent(slot, input.value, seedSpeciesFor(slot)); renderBreeding(); } });
+      row.append(input, mkBtn('🎲', () => { seedParent(slot, 'fish_' + Math.floor(Math.random() * 1e9).toString(36), seedSpeciesFor(slot)); renderBreeding(); }));
       const label = document.createElement('div'); label.className = 'plabel';
-      label.textContent = p.gen ? `Gen ${p.gen} · ${p.label}` : p.label;
+      const kind = p.features.kind ? ` · ${KIND_LABELS[p.features.kind] || p.features.kind}` : '';
+      label.textContent = `${SPECIES[speciesOf(p)].icon}${kind} · ` + (p.gen ? `Gen ${p.gen} · ${p.label}` : p.label);
       card.append(title, featImg(p.features, 256), row, label, fxBadgeEl(p.features));
       return card;
     }
 
     function litterCell(k) {
-      const { child, origin, freshEffects } = breedFeatures(parents.A.features, parents.B.features, `${litterSeed}#${k}`, habitat, config, mutation, effectChance);
+      let bred;
+      try { bred = breedFeatures(parents.A.features, parents.B.features, `${litterSeed}#${k}`, habitat, config, mutation, effectChance); }
+      catch (e) { const d = document.createElement('div'); d.className = 'hint'; d.textContent = e.message; return d; }
+      const { child, origin, freshEffects } = bred;
       const gen = Math.max(parents.A.gen, parents.B.gen) + 1, name = `#${k}`;
       const counts = { A: 0, B: 0, mix: 0, mut: 0 };
       for (const o of Object.values(origin)) counts[o]++;
@@ -1643,11 +2163,14 @@
       eIn.addEventListener('change', () => { const v = parseFloat(eIn.value); if (!Number.isNaN(v)) { effectChance = clamp(v, 0, 1); renderBreeding(); } });
       controls.append(mLab, mIn, eLab, eIn,
         mkBtn('🎲 New litter', () => { litterSeed = 'litter_' + Math.random().toString(36).slice(2); renderBreeding(); }),
-        mkBtn('⇄ Swap parents', () => { [parents.A, parents.B] = [parents.B, parents.A]; renderBreeding(); }));
+        mkBtn('⇄ Swap parents', () => { [parents.A, parents.B] = [parents.B, parents.A]; anchor = otherSlot(anchor); renderBreeding(); }));
       pen.append(parentCard('A'), cross, parentCard('B'), controls);
-      section(`Breeding pen · ${HABITATS[habitat].label}`, pen);
+      const sp = SPECIES[speciesOf(parents.A)];
+      section(`Breeding pen · ${HABITATS[habitat].label} · ${sp.icon} ${sp.plural}`, pen);
+      if (penNotice) { const n = document.createElement('div'); n.className = 'notice'; n.textContent = penNotice; $('main').append(n); penNotice = ''; }
       const hint = document.createElement('div'); hint.className = 'hint';
-      hint.textContent = 'Caption: genes from A / B / ~blended / ⚡mutated (hover a child for detail). →A / →B promotes a child to parent; ✎ opens it in the creator. '
+      hint.textContent = 'Only the same species can breed; kinds within a species cross freely (a hammerhead × thresher may get either head and either tail). '
+        + 'Caption: genes from A / B / ~blended / ⚡mutated (hover a child for detail). →A / →B promotes a child to parent; ✎ opens it in the creator. '
         + `Effects: ${EFFECT_KEYS.map((k) => `${EFFECTS[k].icon} ${EFFECTS[k].label}`).join(' · ')}. `
         + 'Up to 3 per fish (1 Rare, 2 Epic, 3 Legendary); parents pass theirs on 35% of the time each (65% if both carry it).';
       $('main').append(hint);
@@ -1670,15 +2193,16 @@
       $('main').innerHTML = '';
       const seed = seedInput.value || 'fish_1000', w = Number(sizeSel.value);
 
-      section('Preview', gridOf(Object.keys(HABITATS).map((hab) => ({ seed, hab, w: 256, cap: HABITATS[hab].label }))));
+      const capFor = (s, hab) => SPECIES[speciesFor(s, hab, pinnedSpecies())].icon;
+      section('Preview', gridOf(Object.keys(HABITATS).map((hab) => ({ seed, hab, w: 256, cap: `${capFor(seed, hab)} ${HABITATS[hab].label}` }))));
       const fd = document.createElement('div'); fd.className = 'feat';
-      const feat = featuresFromSeed(seed, habitat, config);
+      const feat = featuresFromSeed(seed, habitat, config, pinnedSpecies());
       fd.textContent = `${HABITATS[habitat].label}\n` + Object.entries(feat).map(([k, v]) => `${k}: ${v}`).join('\n');
       $('main').append(fd);
 
       const baseSeed = seed.replace(/#\d+$/, '');
       section('Seed variants (picker preview)',
-        gridOf(Array.from({ length: 32 }, (_, k) => ({ seed: `${baseSeed}#${k}`, hab: habitat, w, cap: '#' + k }))));
+        gridOf(Array.from({ length: 32 }, (_, k) => ({ seed: `${baseSeed}#${k}`, hab: habitat, w, cap: `${capFor(`${baseSeed}#${k}`, habitat)} #${k}` }))));
       section('Variety gallery', gridOf(gallerySeeds.map((s) => ({ seed: s, hab: habitat, w }))));
     }
 
@@ -1691,6 +2215,7 @@
     $('custom-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'custom' : 'gallery'));
     $('breed-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'breed' : 'gallery'));
     habitatSel.addEventListener('change', () => { habitat = habitatSel.value; buildPaletteControls(); renderAll(); });
+    speciesSel.addEventListener('change', () => { if (customMode) features = null; renderAll(); }); // creator reloads its seed as the new species
     seedInput.addEventListener('input', renderAll);
     sizeSel.addEventListener('change', renderAll);
     $('roll').addEventListener('click', () => { seedInput.value = 'fish_' + Math.floor(Math.random() * 1e9).toString(36); renderAll(); });
