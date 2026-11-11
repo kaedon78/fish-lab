@@ -92,6 +92,8 @@
     .flag { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c3d0d4; cursor: pointer; }
     .flag input[type="checkbox"] { margin: 0; align-self: center; }
     .flag:has(input:disabled) { opacity: 0.45; cursor: default; }
+    canvas.ocean { image-rendering: pixelated; border-radius: 8px; border: 1px solid #27333a; display: block; cursor: default; }
+    .ocean-cap { font-size: 12px; color: #7eadb0; margin-top: 8px; min-height: 16px; }
   </style>
 </head>
 <body>
@@ -105,6 +107,10 @@
     <div class="toggle-row">
       <input type="checkbox" id="breed-toggle">
       <label for="breed-toggle">🧬 Breeding pen (cross two fish)</label>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="ocean-toggle">
+      <label for="ocean-toggle">🌊 Ocean view (watch them swim)</label>
     </div>
 
     <div class="control">
@@ -1938,6 +1944,237 @@
       return { child, origin, freshEffects: fresh };
     }
 
+    // ---- ocean scene -------------------------------------------------------
+    // A wide habitat backdrop for many creatures at once. makeOcean paints the
+    // still parts once and returns:
+    //   backdrop  W x H RGBA (water, floor, stones, corals, vents, rocks)
+    //   rays      RW x H RGBA light shafts, a separate layer so it can drift
+    //   floorAt   per column, the top of the floor (H where there is none)
+    //   drawLife(px, t)  the moving parts — swaying plants, marine snow,
+    //             bubbles, vent shimmer, twinkling stars — through
+    //             px(x, y, [r,g,b], alpha)
+    // The floor colours are tinted toward the scene's deep colour, so palette
+    // edits in the lab carry through.
+    const OCEAN_FLOORS = {
+      pond:          { ground: '#3b3524', depth: 0.1, stones: 6, reeds: 26, weeds: 6, lilies: 7 },
+      river:         { ground: '#4a4434', depth: 0.09, stones: 46, weeds: 10, current: 1 },
+      lake:          { ground: '#3a3a2c', depth: 0.1, stones: 10, weeds: 24, reeds: 6 },
+      coast:         { ground: '#c8b48a', depth: 0.1, stones: 12, kelp: 14 },
+      coralReef:     { ground: '#e8dcb0', depth: 0.09, stones: 3, corals: 34, kelp: 3 },
+      openOcean:     {},
+      abyssalTrench: { ground: '#1c1a22', depth: 0.14, jagged: 1, vents: 3, tubes: 14, stones: 8 },
+      cosmicVoid:    { rocks: 9, noBubbles: 1 },
+    };
+    const CORAL_COLOURS = ['#ff6a8a', '#ff9a4a', '#b07aff', '#ffd060', '#4ad0c0', '#ff4a6a', '#7aa0ff'];
+    const STONE_COLOURS = ['#8a8a84', '#6a6258', '#9a8a70', '#5a5a60'];
+    function makeOcean(habitat, scene, cfg, W, H, seed = 1) {
+      const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT], F = OCEAN_FLOORS[habitat] || {};
+      const c1 = hx(scene.bg1), c2 = hx(scene.bg2), light = hx(scene.light), speck = hx(scene.speck), bub = hx(scene.bubble);
+      const glows = (Hb.glow || [scene.light]).map(hx);
+      const RW = W + 16, backdrop = new Uint8ClampedArray(W * H * 4), rays = new Uint8ClampedArray(RW * H * 4);
+      const plotter = (B, BW) => (x, y, c, a = 1) => {
+        x = Math.floor(x); y = Math.floor(y);
+        if (x < 0 || y < 0 || x >= BW || y >= H || a <= 0) return;
+        const i = (y * BW + x) * 4;
+        if (a >= 1) { B[i] = c[0]; B[i + 1] = c[1]; B[i + 2] = c[2]; B[i + 3] = 255; return; }
+        const da = B[i + 3] / 255, oa = a + da * (1 - a), k = da * (1 - a);
+        B[i] = (c[0] * a + B[i] * k) / oa; B[i + 1] = (c[1] * a + B[i + 1] * k) / oa; B[i + 2] = (c[2] * a + B[i + 2] * k) / oa;
+        B[i + 3] = oa * 255;
+      };
+      const P = plotter(backdrop, W);
+      const rnd = (i, j = 0) => hash(i + seed * 0.618, j + seed * 0.37);
+      const pickC = (list, i, j) => hx(list[Math.floor(rnd(i, j) * list.length)]);
+      const water = (y) => mix(c1, c2, clamp(y / (H - 1), 0, 1));
+
+      // water, then the cosmic extras
+      for (let y = 0; y < H; y++) { const c = water(y); for (let x = 0; x < W; x++) P(x, y, c); }
+      if (Hb.nebula) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const nb = noise((x + seed) / 22, y / 16) * 0.7 + noise(x / 9, (y + seed) / 9) * 0.3;
+        if (nb > 0.5) P(x, y, light, (nb - 0.5) * 0.9 * Hb.nebula);
+      }
+      const stars = [];
+      for (let i = 0; i < Math.round((W * H) / 160 * (Hb.stars || 0)); i++) {
+        const s = { x: Math.floor(rnd(i, 1) * W), y: Math.floor(rnd(i, 2) * H), big: rnd(i, 3) > 0.9, tw: rnd(i, 4) > 0.6 };
+        P(s.x, s.y, speck, 0.3 + 0.4 * rnd(i, 5));
+        if (s.big) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) P(s.x + dx, s.y + dy, speck, 0.25);
+        if (s.tw) stars.push(s);
+      }
+      // light shafts, slanting down from the surface and fading with depth
+      const rayK = (Hb.rays || 0) * (cfg.lightRays ?? 1);
+      if (rayK > 0) {
+        const PR = plotter(rays, RW);
+        for (let y = 0; y < H; y++) for (let x = 0; x < RW; x++) {
+          const v = Math.sin((x + y * 0.5) * 0.06 + seed) * 0.6 + Math.sin((x + y * 0.42) * 0.021 + seed * 1.7) * 0.4;
+          if (v > 0.4) PR(x, y, light, (v - 0.4) * 0.45 * rayK * (1 - y / H) ** 1.6);
+        }
+      }
+
+      // the floor: a hazy far ridge, then the near bed
+      const floorAt = new Int16Array(W).fill(H);
+      const ground = F.ground ? mix(hx(F.ground), c2, 0.3) : null;
+      if (ground) {
+        const base = H - Math.round(H * F.depth), jag = F.jagged ? 2.2 : 1;
+        for (let x = 0; x < W; x++) {
+          const ridge = base - 4 - Math.round(noise(x / 34 + seed, 3) * H * 0.1 * jag);
+          for (let y = Math.max(0, ridge); y < H; y++) P(x, y, mix(water(y), ground, 0.25));
+        }
+        for (let x = 0; x < W; x++) {
+          const top = base + Math.round((noise(x / 18 + seed, 1) - 0.5) * 6 + (F.jagged ? (noise(x / 7, seed) - 0.5) * 14 : 0));
+          floorAt[x] = clamp(top, 0, H);
+          for (let y = top; y < H; y++) {
+            const t = rnd(x, y);
+            let c = sh(ground, 1 - 0.35 * (y - top) / (H - top + 1));
+            if (t > 0.86) c = sh(c, 1.14); else if (t < 0.12) c = sh(c, 0.84);
+            P(x, y, c);
+          }
+          P(x, top, mix(ground, light, 0.15 + 0.2 * Math.min(1, rayK)));
+        }
+      }
+      const fl = (x) => floorAt[clamp(Math.round(x), 0, W - 1)];
+      const ellipse = (cx, cy, rx, ry, col, lit = 0.3, bottomHalf = false) => {
+        for (let dy = -Math.ceil(ry); dy <= (bottomHalf ? Math.ceil(ry) : 0); dy++) for (let dx = -Math.ceil(rx); dx <= Math.ceil(rx); dx++) {
+          if ((dx / rx) ** 2 + (dy / ry) ** 2 > 1) continue;
+          P(cx + dx, cy + dy, sh(col, 1 + lit * (-dx / rx - dy / ry) * 0.5));
+        }
+      };
+      for (let i = 0; i < (F.stones || 0); i++) { // half-sunk pebbles and rocks
+        const x = Math.floor(rnd(i, 11) * W), rx = 2 + rnd(i, 12) * ((F.stones || 0) > 20 ? 3 : 6);
+        ellipse(x, fl(x) + 1, rx, Math.max(1.2, rx * 0.6), mix(ground, pickC(STONE_COLOURS, i, 13), 0.6));
+      }
+      for (let i = 0; i < (F.lilies || 0); i++) { // pads on the surface, shadows beneath
+        const x = Math.floor(rnd(i, 21) * W), rx = 4 + Math.floor(rnd(i, 22) * 5), pad = mix(hx('#3f7a34'), c1, 0.2);
+        for (let dx = -rx; dx <= rx; dx++) {
+          for (let y = 2; y < 6; y++) P(x + dx, y, sh(water(y), 0.6), 0.45 * (1 - (y - 2) / 4));
+          if (dx < 0 || dx > 1) P(x + dx, 0, sh(pad, 1.15));
+          P(x + dx, 1, pad);
+        }
+      }
+      // corals: branching, brain, fan and tube colonies along the reef floor
+      const coralAt = (i) => Math.floor(rnd(i, 31) * W);
+      const corals = Array.from({ length: F.corals || 0 }, (_, i) => i).sort((a, b) => fl(coralAt(a)) - fl(coralAt(b)));
+      for (const i of corals) {
+        const x = coralAt(i), y = fl(x), col = mix(pickC(CORAL_COLOURS, i, 32), water(y), 0.15), kind = Math.floor(rnd(i, 33) * 4);
+        if (kind === 0) {
+          const branch = (bx, by, len, ang, d) => {
+            for (let k = 0; k < len; k++) {
+              const px = bx + Math.sin(ang) * k, py = by - Math.cos(ang) * k;
+              P(px, py, sh(col, 0.85 + 0.25 * (k / len))); if (d === 0) P(px + 1, py, sh(col, 0.75));
+            }
+            if (d < 3) {
+              const ex = bx + Math.sin(ang) * len, ey = by - Math.cos(ang) * len, spread = 0.35 + rnd(i + d, bx) * 0.3;
+              branch(ex, ey, len * 0.7, ang - spread, d + 1); branch(ex, ey, len * 0.7, ang + spread, d + 1);
+            }
+          };
+          branch(x, y, 8 + rnd(i, 34) * 8, (rnd(i, 35) - 0.5) * 0.4, 0);
+        } else if (kind === 1) {
+          const r = 5 + rnd(i, 34) * 7;
+          for (let dy = -Math.ceil(r); dy <= 0; dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
+            if (dx * dx + dy * dy > r * r) continue;
+            const groove = Math.sin((dx * 0.9 + dy * 1.3) * 1.6 + noise(dx / 3 + i, dy / 3) * 4) > 0.55;
+            P(x + dx, y + dy + 1, sh(col, (groove ? 0.7 : 1) * (1 + 0.15 * (-dx - dy) / r)));
+          }
+        } else if (kind === 2) {
+          const len = 14 + rnd(i, 34) * 14;
+          for (let a = -0.9; a <= 0.9; a += 0.2) for (let k = 0; k < len * (1 - Math.abs(a) * 0.3); k++) P(x + Math.sin(a) * k, y - Math.cos(a) * k, col, 0.85);
+          for (let k = 3; k < len; k += 3) for (let a = -0.9; a <= 0.9; a += 0.05) P(x + Math.sin(a) * k, y - Math.cos(a) * k, sh(col, 0.8), 0.5);
+        } else {
+          for (let t = 0; t < 3 + Math.floor(rnd(i, 34) * 4); t++) {
+            const tx = x + t * 3 - 4, th = 6 + Math.floor(rnd(i, t + 40) * 14), ty = fl(tx);
+            for (let k = 0; k < th; k++) { P(tx, ty - k, sh(col, 0.8)); P(tx + 1, ty - k, col); }
+            P(tx, ty - th, mix(col, WHITE, 0.4)); P(tx + 1, ty - th, mix(col, WHITE, 0.4));
+          }
+        }
+      }
+      // hydrothermal vents: mineral chimneys with a glowing mouth
+      const vents = [];
+      for (let i = 0; i < (F.vents || 0); i++) {
+        const x = Math.floor(((i + 0.5) / F.vents + (rnd(i, 51) - 0.5) * 0.2) * W), h = 24 + Math.floor(rnd(i, 52) * 30), w0 = 8 + rnd(i, 53) * 6;
+        const y0 = fl(x), g = glows[i % glows.length], rock = mix(hx('#3a3038'), ground, 0.2);
+        for (let dy = -14; dy <= 3; dy++) for (let dx = -18; dx <= 18; dx++) P(x + dx, y0 + dy, g, 0.1 * Math.max(0, 1 - Math.hypot(dx, dy * 2) / 19)); // glow on the bed
+        for (let k = 0; k <= h; k++) {
+          const half = lerp(w0, 2, k / h) / 2 + (noise(k / 3, i * 7) - 0.5) * 1.5;
+          const l = Math.round(-half), r = Math.round(half);
+          for (let dx = l; dx <= r; dx++) P(x + dx, y0 - k, sh(rock, (rnd(dx + 50, k + i) > 0.85 ? 1.35 : 1) * (dx < 0 ? 1.1 : 0.85)));
+          P(x + l, y0 - k, mix(rock, g, 0.25 * (1 - k / h) + 0.35 * (k / h) ** 3)); // the vent's glow catches its rim
+        }
+        for (let dy = -7; dy <= 7; dy++) for (let dx = -7; dx <= 7; dx++) P(x + dx, y0 - h + dy, g, 0.4 * Math.max(0, 1 - Math.hypot(dx, dy) / 7.5) ** 1.5);
+        P(x, y0 - h, mix(g, WHITE, 0.5));
+        vents.push({ x, y: y0 - h, g });
+      }
+      // floating rocks in the void, lit from above-left by the scene light
+      for (let i = 0; i < (F.rocks || 0); i++) {
+        const cx = rnd(i, 61) * W, cy = H * (0.12 + 0.76 * rnd(i, 62)), r = 5 + rnd(i, 63) * 13, rock = mix(hx('#3a2e4a'), c2, 0.25);
+        for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r * 1.3); dx <= Math.ceil(r * 1.3); dx++) {
+          const d = Math.hypot(dx / 1.3, dy) / (r * (0.75 + 0.35 * noise(dx / 4 + i * 9, dy / 4)));
+          if (d >= 1) continue;
+          let c = sh(rock, clamp(0.85 - 0.3 * (dx + dy) / r, 0.55, 1.25));
+          if (d > 0.8 && dx + dy < 0) c = mix(c, light, 0.45);
+          if (rnd(dx + i * 31, dy) > 0.93) c = sh(c, 0.7);
+          P(cx + dx, cy + dy, c);
+        }
+      }
+
+      // things that move: plants (base on the floor), bubble streams, snow
+      const plants = [];
+      const addPlants = (n, kind, j, make) => { for (let i = 0; i < (n || 0); i++) { const x = Math.floor(rnd(i, j) * W); plants.push({ kind, x, base: fl(x), ph: rnd(i, j + 1) * 6.28, ...make(i, fl(x)) }); } };
+      const greens = ['#4a7a3a', '#6a8a2a', '#3a6a4a', '#5a7a2a'];
+      addPlants(F.reeds, 'reed', 71, (i, b) => ({ h: Math.round(b * (0.55 + 0.4 * rnd(i, 73))), col: mix(pickC(greens, i, 74), c2, 0.2 + 0.25 * rnd(i, 75)), amp: 1.2, sp: 0.6 }));
+      addPlants(F.weeds, 'weed', 81, (i) => ({ h: 10 + Math.round(rnd(i, 83) * 32), n: 3 + Math.floor(rnd(i, 84) * 3), col: mix(pickC(greens, i, 85), c2, 0.25), amp: 2, sp: 0.9 }));
+      addPlants(F.kelp, 'kelp', 91, (i, b) => ({ h: Math.round(b * (0.4 + 0.45 * rnd(i, 93))), col: mix(pickC(['#7a6a2a', '#5a6a2a', '#8a7a3a'], i, 94), c2, 0.2), amp: 3.5, sp: 0.5 }));
+      addPlants(F.tubes, 'tube', 101, (i) => ({ h: 4 + Math.round(rnd(i, 103) * 7), col: mix(hx('#e8e0d0'), c2, 0.35), plume: hx('#d83040'), amp: 1, sp: 1.3 }));
+      for (const p of plants) if (p.kind === 'tube') for (let k = 0; k < p.h; k++) { P(p.x, p.base - k, p.col); P(p.x + 1, p.base - k, sh(p.col, 0.8)); }
+      const streams = F.noBubbles ? [] : Array.from({ length: Math.max(2, Math.round(W / 120)) }, (_, i) => {
+        const x = Math.floor(rnd(i, 111) * W); return { x, base: fl(x) - 1, sp: 0.06 + rnd(i, 112) * 0.06 };
+      });
+      const snowN = Math.round((W * H) / 650 * (Hb.snow || 0));
+
+      function drawLife(px, t) {
+        for (const p of plants) {
+          const sway = (k) => Math.sin(t * p.sp + p.ph - k * 0.07) * p.amp * (k / p.h) ** 1.4;
+          if (p.kind === 'tube') { // only the plume moves
+            const o = Math.round(sway(p.h)), y = p.base - p.h;
+            for (const [dx, dy] of [[0, -1], [-1, -1], [1, -1], [-1, -2], [2, -2], [0, -2], [1, 0]]) px(p.x + dx + o, y + dy, p.plume, 0.9);
+          } else if (p.kind === 'weed') {
+            for (let s = 0; s < p.n; s++) {
+              const lean = (s - (p.n - 1) / 2) * 1.6, hh = p.h * (0.6 + 0.4 * hash(s, p.x));
+              for (let k = 0; k < hh; k++) px(p.x + lean * (k / hh) + sway(k) + Math.sin(k * 0.35 + s * 2) * 0.8, p.base - k, sh(p.col, 0.85 + 0.3 * (s % 2)));
+            }
+          } else {
+            const wide = p.kind === 'kelp';
+            for (let k = 0; k < p.h; k++) {
+              const x = p.x + sway(k), y = p.base - k;
+              px(x, y, p.col); if (wide) px(x + 1, y, sh(p.col, 0.8));
+              if (wide && k % 6 === 3) { const side = (k / 6) % 2 < 1 ? -1 : 2; for (let j = 0; j < 3; j++) px(x + side + (side < 0 ? -j : j), y + (j > 1 ? 1 : 0), sh(p.col, 1.15)); }
+              if (!wide && k % 11 === 5) px(x + ((k / 11) % 2 < 1 ? -1 : 1), y - 1, p.col, 0.8);
+            }
+          }
+        }
+        for (const v of vents) for (let j = 0; j < 7; j++) { // shimmer rising off the vent
+          const ph = (t * 0.35 + j / 7) % 1;
+          px(v.x + Math.sin(t * 2 + j) * 3 * ph, v.y - 2 - ph * 44, v.g, 0.6 * (1 - ph));
+        }
+        for (const s of streams) for (let b = 0; b < 5; b++) {
+          const ph = (t * s.sp + b / 5) % 1, y = s.base - ph * s.base;
+          if (y < 1) continue;
+          const x = s.x + Math.sin(t * 3 + b * 2) * 1.2, a = 0.6 * (1 - ph * 0.4);
+          if (b % 2) { for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) px(x + dx, y + dy, bub, a); px(x, y, bub, a * 0.15); }
+          else px(x, y, bub, a);
+        }
+        for (let i = 0; i < snowN; i++) {
+          let x, y = (hash(i, 7) * H + t * (2 + 3 * hash(i, 8))) % H;
+          if (F.current) { x = (hash(i, 9) * W + t * (14 + 10 * hash(i, 10))) % W; y = (hash(i, 7) * H + Math.sin(t * 0.7 + i) * 3 + H) % H; }
+          else x = hash(i, 9) * W + Math.sin(t * 0.5 + i) * 2;
+          if (y < fl(x)) px(x, y, speck, 0.45);
+        }
+        for (const [i, s] of stars.entries()) {
+          const a = 0.3 + 0.7 * Math.abs(Math.sin(t * 1.7 + i * 1.3));
+          px(s.x, s.y, speck, a);
+          if (s.big) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) px(s.x + dx, s.y + dy, speck, 0.3 * a);
+        }
+      }
+      return { backdrop, rays, RW, floorAt, drawLife, plotter };
+    }
+
     // =======================================================================
     // lab UI
     // =======================================================================
@@ -1949,7 +2186,7 @@
     let scenes = Object.fromEntries(Object.entries(HABITATS).map(([k, h]) => [k, { ...h.scene }])); // working copy
     let config = { ...DEFAULT_FISH_CONFIG };
     let gallerySeeds = freshGallery();
-    let customMode = false, breedMode = false;
+    let customMode = false, breedMode = false, oceanMode = false;
     let features = null;
     // Breeding pen state. A parent is either seed-derived or a promoted child /
     // creator fish; `hab` pins it to the habitat it was made in, so the pen
@@ -2284,17 +2521,160 @@
       section('Litter', grid);
     }
 
-    // One view at a time: gallery, creator ('custom') or breeding pen ('breed').
+    // ---- ocean view ----
+    // Every seed variant at once, swimming in a habitat-themed scene. Sprites
+    // repaint at ~12fps (their own swim cycle); positions and the scene move
+    // at ~30fps so the motion stays smooth. Back-of-tank creatures swim
+    // slower and are hazed toward the water colour.
+    let ocean = null, oceanRAF = 0, oceanResize = 0;
+    const OCEAN_COUNT = 32;
+    const SPEEDS = { fish: [10, 24], shark: [14, 22], whale: [5, 9], jelly: [1, 3] };
+    const toCanvas = (data, w, h) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0); return c;
+    };
+    function spriteBox(cv) { // the creature's opaque bounds inside its 64x48 frame
+      const d = cv.getContext('2d').getImageData(0, 0, FISH_W, FISH_H).data;
+      let x0 = FISH_W, y0 = FISH_H, x1 = -1, y1 = -1;
+      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) if (d[(y * FISH_W + x) * 4 + 3] > SOLID_A) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      return x1 < 0 ? { x0: 0, y0: 0, x1: FISH_W - 1, y1: FISH_H - 1 } : { x0, y0, x1, y1 };
+    }
+    function renderOcean() {
+      const main = $('main'); main.innerHTML = '';
+      const avail = Math.max(320, main.clientWidth - 40), scale = avail >= 1100 ? 3 : 2;
+      const W = Math.floor(avail / scale), H = clamp(Math.floor((innerHeight - 120) / scale), 150, Math.round(W * 0.66));
+      const canvas = document.createElement('canvas'); canvas.className = 'ocean';
+      canvas.width = W; canvas.height = H; canvas.style.width = `${W * scale}px`; canvas.style.height = `${H * scale}px`;
+      const cap = document.createElement('div'); cap.className = 'ocean-cap';
+      const seed = seedInput.value || 'fish_1000', base = seed.replace(/#\d+$/, '');
+      section(`${HABITATS[habitat].label} · seed variants of ${base}`, canvas); main.append(cap);
+
+      let sceneSeed = 0; for (const ch of base) sceneSeed = (sceneSeed * 31 + ch.charCodeAt(0)) % 9973;
+      const cfg = cfgFor(habitat), scn = makeOcean(habitat, scenes[habitat], cfg, W, H, sceneSeed);
+      const life = new Uint8ClampedArray(W * H * 4), lifeImg = new ImageData(life, W, H);
+      const old = ocean && ocean.habitat === habitat ? new Map(ocean.swimmers.map((s) => [s.seed, s])) : new Map();
+      const c1 = hx(scenes[habitat].bg1), c2 = hx(scenes[habitat].bg2);
+      const swimmers = Array.from({ length: OCEAN_COUNT }, (_, k) => {
+        const s = `${base}#${k}`, f = featuresFromSeed(s, habitat, config, pinnedSpecies()), sp = f.species || 'fish';
+        const cv = document.createElement('canvas'); cv.width = FISH_W; cv.height = FISH_H;
+        paintFish(cv.getContext('2d'), f, habitat, { ...cfg, transparentBackground: true }, 1, null);
+        const box = spriteBox(cv), depth = hash(k, 3), [lo, hi] = SPEEDS[sp];
+        const prev = old.get(s);
+        const sw = {
+          seed: s, k, f, sp, cv, box, depth, phase: k * 1.37,
+          speed: lerp(lo, hi, hash(k, 5)) * (0.55 + 0.45 * depth),
+          x: prev ? prev.x : hash(k, 7) * (W - FISH_W), y: prev ? prev.y : hash(k, 9) * (H * 0.75) - box.y0,
+          dir: prev ? prev.dir : hash(k, 11) > 0.5 ? 1 : -1, ty: prev ? prev.ty : null,
+        };
+        if (sw.ty === null) sw.ty = sw.y;
+        return sw;
+      }).sort((a, b) => a.depth - b.depth); // back of the tank first
+
+      const ctx = canvas.getContext('2d'), lifeCv = document.createElement('canvas'); lifeCv.width = W; lifeCv.height = H;
+      const lctx = lifeCv.getContext('2d'), px = scn.plotter(life, W);
+      ocean = { habitat, swimmers, W, H, scale, canvas, back: toCanvas(scn.backdrop, W, H), rays: toCanvas(scn.rays, scn.RW, H), last: 0, lastSprite: 0 };
+      const yRange = (sw) => { // keep the body between the surface and the floor under it
+        const cx = clamp(Math.round(sw.x + (sw.box.x0 + sw.box.x1) / 2), 0, W - 1);
+        return [2 - sw.box.y0, Math.min(H, scn.floorAt[cx]) - sw.box.y1 - 2];
+      };
+      const flipped = (sw) => sw.sp !== 'jelly' && sw.dir > 0; // sprites face left; mirror them to swim right
+      const bounds = (sw) => (flipped(sw) ? [FISH_W - 1 - sw.box.x1, FISH_W - 1 - sw.box.x0] : [sw.box.x0, sw.box.x1]);
+
+      function step(t, dt) {
+        for (const sw of swimmers) {
+          sw.x += sw.dir * sw.speed * dt;
+          if (sw.sp === 'jelly') { // drifts; each pulse lifts it a little, then it sinks
+            sw.y += (Math.max(0, Math.sin(t * 2.4 + (sw.f.patternSeed % 7))) ** 2 * -9 + 2.2) * dt;
+          } else {
+            sw.y += (sw.ty - sw.y) * Math.min(1, dt * 0.4) + Math.sin(t * 0.9 + sw.phase) * 2 * dt;
+            if (Math.random() < dt * 0.25) sw.ty = sw.y + (Math.random() - 0.5) * H * 0.35; // wander to a new depth
+            if (Math.random() < dt * 0.02) sw.dir = -sw.dir;                               // or change its mind
+          }
+          const [bx0, bx1] = bounds(sw);
+          if (sw.dir < 0 && sw.x + bx1 < 6) sw.dir = 1;          // turn once mostly out of view
+          else if (sw.dir > 0 && sw.x + bx0 > W - 6) sw.dir = -1;
+          const [ylo, yhi] = yRange(sw);
+          if (sw.y > yhi) { sw.y = Math.max(ylo, yhi); sw.ty = Math.min(sw.ty, yhi - 10); }
+          if (sw.y < ylo) { sw.y = ylo; sw.ty = Math.max(sw.ty, ylo + 10); }
+        }
+      }
+      function repaintSprites(t) {
+        for (const sw of swimmers) {
+          const g = sw.cv.getContext('2d');
+          paintFish(g, sw.f, habitat, { ...cfg, transparentBackground: true }, 1, fishAnim(t, sw.phase));
+          const haze = (1 - sw.depth) * 0.38; // distant ones fade toward the water around them
+          if (haze > 0.02) {
+            g.globalCompositeOperation = 'source-atop';
+            g.fillStyle = toHex(mix(c1, c2, clamp((sw.y + FISH_H / 2) / H, 0, 1))); g.globalAlpha = haze;
+            g.fillRect(0, 0, FISH_W, FISH_H);
+            g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+          }
+        }
+      }
+      function frame(t) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(ocean.back, 0, 0);
+        ctx.drawImage(ocean.rays, Math.round(-8 + Math.sin(t / 1000 * 0.25) * 6), 0);
+        life.fill(0); scn.drawLife(px, t / 1000); lctx.putImageData(lifeImg, 0, 0); ctx.drawImage(lifeCv, 0, 0);
+        for (const sw of swimmers) {
+          const x = Math.round(sw.x), y = Math.round(sw.y);
+          if (flipped(sw)) { ctx.save(); ctx.translate(x + FISH_W, y); ctx.scale(-1, 1); ctx.drawImage(sw.cv, 0, 0); ctx.restore(); }
+          else ctx.drawImage(sw.cv, x, y);
+        }
+      }
+      ocean.tick = (t) => {
+        if (!oceanMode || !ocean || ocean.canvas !== canvas) return;
+        oceanRAF = requestAnimationFrame(ocean.tick);
+        if (ocean.last && t - ocean.last < 33) return;
+        const dt = ocean.last ? Math.min(0.1, (t - ocean.last) / 1000) : 0;
+        ocean.last = t;
+        step(t / 1000, dt);
+        if (t - ocean.lastSprite >= 83) { ocean.lastSprite = t; repaintSprites(t); }
+        frame(t);
+      };
+
+      const hit = (e) => { // front-most creature whose body box is under the pointer
+        const wx = e.offsetX / scale, wy = e.offsetY / scale;
+        for (let i = swimmers.length - 1; i >= 0; i--) {
+          const sw = swimmers[i], [bx0, bx1] = bounds(sw);
+          if (wx >= sw.x + bx0 && wx <= sw.x + bx1 + 1 && wy >= sw.y + sw.box.y0 && wy <= sw.y + sw.box.y1 + 1) return sw;
+        }
+        return null;
+      };
+      const label = (sw) => `${SPECIES[sw.sp].icon} ${KIND_LABELS[sw.f.kind] || SPECIES[sw.sp].label}${sw.sp === 'fish' ? ` (${sw.f.shape})` : ''} · ${sw.seed}`
+        + (fxBadge(sw.f) ? ` · ${fxBadge(sw.f)}` : '');
+      const idle = `${OCEAN_COUNT} creatures · hover one to see its seed, click it to open it in the creator`;
+      cap.textContent = idle;
+      canvas.addEventListener('mousemove', (e) => {
+        const sw = hit(e); canvas.style.cursor = sw ? 'pointer' : 'default';
+        cap.textContent = sw ? label(sw) : idle;
+      });
+      canvas.addEventListener('mouseleave', () => { cap.textContent = idle; });
+      canvas.addEventListener('click', (e) => {
+        const sw = hit(e); if (!sw) return;
+        seedInput.value = sw.seed; features = null; setMode('custom');
+      });
+      cancelAnimationFrame(oceanRAF);
+      repaintSprites(0); frame(0);
+      oceanRAF = requestAnimationFrame(ocean.tick);
+    }
+
+    // One view at a time: gallery, creator ('custom'), breeding pen ('breed')
+    // or ocean ('ocean').
     function setMode(mode) {
-      customMode = mode === 'custom'; breedMode = mode === 'breed';
-      $('custom-toggle').checked = customMode; $('breed-toggle').checked = breedMode;
+      customMode = mode === 'custom'; breedMode = mode === 'breed'; oceanMode = mode === 'ocean';
+      $('custom-toggle').checked = customMode; $('breed-toggle').checked = breedMode; $('ocean-toggle').checked = oceanMode;
       if (!customMode && animOn) setAnim(false);
+      if (!oceanMode) { cancelAnimationFrame(oceanRAF); ocean = null; }
       renderAll();
     }
 
     function renderAll() {
       if (customMode) { renderCreator(); return; }
       if (breedMode) { renderBreeding(); return; }
+      if (oceanMode) { renderOcean(); return; }
       $('main').innerHTML = '';
       const seed = seedInput.value || 'fish_1000', w = Number(sizeSel.value);
 
@@ -2319,6 +2699,8 @@
 
     $('custom-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'custom' : 'gallery'));
     $('breed-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'breed' : 'gallery'));
+    $('ocean-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'ocean' : 'gallery'));
+    addEventListener('resize', () => { if (!oceanMode) return; clearTimeout(oceanResize); oceanResize = setTimeout(renderAll, 200); });
     habitatSel.addEventListener('change', () => { habitat = habitatSel.value; buildPaletteControls(); renderAll(); });
     speciesSel.addEventListener('change', () => { if (customMode) features = null; renderAll(); }); // creator reloads its seed as the new species
     seedInput.addEventListener('input', renderAll);
