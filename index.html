@@ -93,7 +93,22 @@
     .flag input[type="checkbox"] { margin: 0; align-self: center; }
     .flag:has(input:disabled) { opacity: 0.45; cursor: default; }
     canvas.ocean { image-rendering: pixelated; border-radius: 8px; border: 1px solid #27333a; display: block; cursor: default; }
-    .ocean-cap { font-size: 12px; color: #7eadb0; margin-top: 8px; min-height: 16px; }
+    .ocean-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .ocean-cap { font-size: 12px; color: #7eadb0; min-height: 16px; flex: 1; }
+    .ocean-bar button { padding: 4px 10px; font-size: 12px; flex-shrink: 0; }
+    .ocean-wrap { position: relative; }
+    .ocean-tip { position: absolute; z-index: 2; pointer-events: none; max-width: 270px; padding: 7px 10px;
+      background: rgba(15, 20, 22, 0.94); border: 1px solid #36505a; border-radius: 6px; box-shadow: 0 4px 14px #0008;
+      font-size: 12px; line-height: 1.5; color: #c3d0d4; }
+    .ocean-tip .tt { font-weight: bold; color: #5fd4e0; font-size: 13px; }
+    .ocean-tip .sub { color: #85969c; font-size: 11px; font-family: Consolas, monospace; }
+    .ocean-tip .sws { display: flex; gap: 3px; margin: 4px 0 2px; }
+    .ocean-tip .sws span { width: 13px; height: 13px; border-radius: 3px; border: 1px solid #0009; }
+    .ocean-tip .hint { margin-top: 3px; }
+    .ocean-wrap.max { position: fixed; inset: 0; z-index: 10; background: #12181c; padding: 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .ocean-wrap.max .ocean-bar { align-self: stretch; }
+    body.ocean-max { overflow: hidden; }
   </style>
 </head>
 <body>
@@ -180,6 +195,11 @@
     // =======================================================================
 
     const FISH_W = 64, FISH_H = 48;
+    // The frame being painted. It's 64x48 unless paintFish is asked for a
+    // higher resolution (RES > 1), which draws a bigger creature with the
+    // same one-pixel detail instead of upscaling a small one.
+    let FW = FISH_W, FH = FISH_H, RES = 1;
+    const frameSize = (res = 1) => [Math.round(FISH_W * res), Math.round(FISH_H * res)];
 
     // ---- PRNG (xmur3 string hash -> mulberry32) ----------------------------
     function xmur3(str) {
@@ -230,20 +250,30 @@
     const WHITE = [250, 250, 244], PUPIL = [12, 10, 14], MOUTH = [26, 14, 16], BONE = [232, 228, 210], GULLET = [40, 6, 14];
 
     // ---- tiny RGBA raster (alpha-blended plots, no canvas needed) ----------
-    const raster = () => new Uint8ClampedArray(FISH_W * FISH_H * 4);
+    const raster = () => new Uint8ClampedArray(FW * FH * 4);
+    // When set, every solid plot also marks its pixel here (see
+    // extraEyeSpots). Faint ones are glow halos, not parts.
+    let PARTS = null;
     function plot(R, x, y, c, a = 1) {
       x = Math.floor(x); y = Math.floor(y);
-      if (x < 0 || y < 0 || x >= FISH_W || y >= FISH_H || a <= 0) return;
-      const i = (y * FISH_W + x) * 4;
+      if (x < 0 || y < 0 || x >= FW || y >= FH || a <= 0) return;
+      if (PARTS && a >= 0.35) PARTS[y * FW + x] = 1;
+      const i = (y * FW + x) * 4;
       if (a >= 1) { R[i] = c[0]; R[i + 1] = c[1]; R[i + 2] = c[2]; R[i + 3] = 255; return; }
       const da = R[i + 3] / 255, oa = a + da * (1 - a), k = da * (1 - a);
       R[i] = (c[0] * a + R[i] * k) / oa; R[i + 1] = (c[1] * a + R[i + 1] * k) / oa; R[i + 2] = (c[2] * a + R[i + 2] * k) / oa;
       R[i + 3] = oa * 255;
     }
     function darken(R, x, y, f) {
-      if (x < 0 || y < 0 || x >= FISH_W || y >= FISH_H) return;
-      const i = (y * FISH_W + x) * 4;
+      if (x < 0 || y < 0 || x >= FW || y >= FH) return;
+      const i = (y * FW + x) * 4;
       if (R[i + 3]) { R[i] *= f; R[i + 1] *= f; R[i + 2] *= f; }
+    }
+    // darken() for a body part (gills, blowhole) rather than skin texture,
+    // so extra eyes keep off it too
+    function darkenPart(R, x, y, f) {
+      darken(R, x, y, f);
+      if (PARTS && x >= 0 && y >= 0 && x < FW && y < FH) PARTS[y * FW + x] = 1;
     }
     function disc(R, cx, cy, r, c, a = 1) {
       for (let dy = -r; dy <= r; dy++) {
@@ -254,9 +284,9 @@
     // Darken every opaque pixel that touches transparency: a crisp 1px inner
     // outline, done per layer so fins and body each keep their own contour.
     function edgeDarken(R, f = 0.6) {
-      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= 128;
+      const solid = (x, y) => x >= 0 && y >= 0 && x < FW && y < FH && R[(y * FW + x) * 4 + 3] >= 128;
       const edges = [];
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
         if (solid(x, y) && (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1))) edges.push(x, y);
       }
       for (let i = 0; i < edges.length; i += 2) darken(R, edges[i], edges[i + 1], f);
@@ -264,7 +294,7 @@
     function over(dst, src) { // src composited over dst, in place
       for (let i = 0; i < dst.length; i += 4) {
         const a = src[i + 3] / 255;
-        if (a) plot(dst, (i / 4) % FISH_W, Math.floor(i / 4 / FISH_W), [src[i], src[i + 1], src[i + 2]], a);
+        if (a) plot(dst, (i / 4) % FW, Math.floor(i / 4 / FW), [src[i], src[i + 1], src[i + 2]], a);
       }
     }
 
@@ -503,7 +533,7 @@
                    frilly: 1, markings: 'stripes', alpha: [70, 85], back: ['#e8703a', '#d8502a', '#f0a040', '#c84a3a'], mark: ['#8a2a1a', '#f0c070'], fin: ['#f0b070', '#e89060'] },
       nettle:    { w: 2, shape: 'bell', bellW: [14, 18], bellH: [11, 14], tentN: [6, 10], tentLen: [18, 26], oral: [4, 4], oralLen: [16, 24],
                    frilly: 1, markings: 'stripes', alpha: [65, 80], back: ['#f0c890', '#e8a868', '#f4d8b0'], mark: ['#a04020', '#8a5a2a'], fin: ['#e8b080'] },
-      comb:      { w: 1.5, shape: 'oval', bellW: [10, 13], bellH: [15, 20], tentN: [0, 2], tentLen: [14, 22], oral: [0, 0], oralLen: [0, 0],
+      comb:      { w: 1.5, shape: 'oval', bellW: [10, 13], bellH: [15, 20], tentN: [3, 4], tentLen: [14, 22], oral: [0, 0], oralLen: [0, 0],
                    frilly: 0, markings: 'comb', alpha: [50, 60], back: ['#e0f0ff', '#f0e8ff'], mark: ['#ffffff'], fin: ['#e8f0ff'] },
     };
     const KINDS = { shark: SHARK_KINDS, whale: WHALE_KINDS, jelly: JELLY_KINDS };
@@ -673,10 +703,13 @@
       return fitFrame(f);
     }
     // Keep every species inside the 64x48 frame (also run after breeding).
+    const JELLY_MIN_TENTACLES = 3;
     function fitFrame(f) {
       if (f.species === 'jelly') {
         const room = FISH_H - 4 - f.bellH;
+        f.tentN = Math.max(JELLY_MIN_TENTACLES, f.tentN || 0);
         f.tentLen = clamp(f.tentLen, 0, room); f.oralLen = clamp(f.oralLen, 0, room);
+        delete f.extraEyes; delete f.eyeColor; // jellies have no eyes
       } else f.tailLen = clamp(f.tailLen, 0, 60 - f.bodyLen - (f.tusk || 0));
       return f;
     }
@@ -693,9 +726,10 @@
       f.patternSeed = ri(rng, 0, 999);
       f.rimLights = rng() < (ek >= 1 ? 0.75 : 0.08);
       f.glowColor = pick(rng, Hb.glow);
-      f.eyeColor = pick(rng, Hb.eye);
-      const eyes = rng() < cfg.extraEyeChance * ek, eyeN = ri(rng, 2, 5);
-      f.extraEyes = eyes ? eyeN : 0;
+      // Jellies have no eyes. These three rolls used to give them an iris
+      // and extra eyes; they're still made so every roll after them (and so
+      // every existing jelly seed) comes out the same.
+      pick(rng, Hb.eye); rng(); ri(rng, 2, 5);
       f.runes = rng() < cfg.runeChance * ek;
       f.aura = rng() < cfg.auraChance * ek;
       f.eldritchColor = pick(rng, ELDRITCH);
@@ -722,13 +756,13 @@
     const BLUNT = [0.3, 0.45, 0.6, 0.8, 1.0];
     function makeGeom(f) {
       const L = f.bodyLen, D = f.bodyDepth, lead = f.tusk || 0; // a narwhal's tusk needs room up front
-      const tailLen = clamp(f.tailLen, 0, FISH_W - 2 - L - lead);
-      const x0 = Math.max(2, Math.floor((FISH_W - (L + tailLen + lead)) / 2) + lead);
+      const tailLen = clamp(f.tailLen, 0, FW - 2 - L - lead);
+      const x0 = Math.max(2, Math.floor((FW - (L + tailLen + lead)) / 2) + lead);
       const up = f.backArch / 100, peak = clamp(f.peak / 100, 0.05, 0.95), taper = f.taper / 100;
       const e = BLUNT[clamp(f.headBlunt, 1, 5) - 1];
       const finUp = f.dorsal === 'none' ? 0 : f.dorsalH, finDn = f.anal === 'none' ? 0 : f.analH;
       // Centre the whole silhouette (fins included) vertically.
-      const cy = Math.round(FISH_H / 2 + (D * up + finUp - D * (1 - up) - finDn) / 2);
+      const cy = Math.round(FH / 2 + (D * up + finUp - D * (1 - up) - finDn) / 2);
       const half = (s) => (s < peak
         ? (f.squareHead ? (s * L < 1.5 ? 0.85 : 1) : Math.pow(Math.sin((Math.PI / 2) * (s / peak)), e)) // sperm whale: a box of a head
         : taper + (1 - taper) * Math.pow(Math.cos((Math.PI / 2) * ((s - peak) / (1 - peak))), 1.1));
@@ -739,7 +773,7 @@
         bot[x] = Math.max(top[x], Math.round(cy + D * (1 - up) * d));
       }
       const xp = x0 + L;
-      const headLen = clamp(Math.round(Math.min(L * 0.27, D * 0.9 + 3)), 4, 12);
+      const headLen = clamp(Math.round(Math.min(L * 0.27, D * 0.9 + 3 * RES)), Math.round(4 * RES), Math.round(12 * RES));
       const G = { L, D, x0, xp, cy, top, bot, tailLen, headLen, pedTop: top[xp - 1], pedBot: bot[xp - 1] };
       if (f.hammer) { // hammerhead: a cephalofoil jutting above and below the snout
         const hx2 = x0 + 2, ext = Math.max(2, Math.round(D * 0.45));
@@ -814,8 +848,16 @@
             c = mix(c, [210, 225, 230], 0.4);
             const spine = y === latY + 1 && s > 0.18 && s < 0.98;
             const rib = (x - G.x0) % 3 === 0 && s > 0.3 && s < 0.78 && y > t + 1 && y < b - 1;
-            if (spine || rib) c = BONE;
-            plot(R, x, y, c, spine || rib ? 0.95 : 0.72);
+            if (spine || rib) {
+              // Bones fade out toward their ends: rib tips toward the outline,
+              // the spine toward the head and tail, the first and last ribs.
+              const along = smooth(0.18, 0.32, s) * (1 - smooth(0.86, 0.98, s));
+              const tip = smooth(0, 0.75, Math.min(y - t, b - y) / (hgt / 2));
+              const ribRun = smooth(0.3, 0.4, s) * (1 - smooth(0.68, 0.78, s));
+              const k = 0.3 + 0.7 * (spine ? along : Math.max(tip * (0.55 + 0.45 * ribRun), 0));
+              c = mix(c, BONE, k);
+              plot(R, x, y, c, lerp(0.72, 0.95, k));
+            } else plot(R, x, y, c, 0.72);
           } else plot(R, x, y, c);
         }
       }
@@ -870,7 +912,7 @@
     function drawPelvic(R, f, G) {
       if (!f.pelvic) return;
       const fin = hx(f.finColor), a = f.finAlpha / 100;
-      const px = G.x0 + Math.round(G.L * 0.36), by = G.bot[px], len = clamp(Math.round(G.D / 5), 2, 4);
+      const px = G.x0 + Math.round(G.L * 0.36), by = G.bot[px], len = clamp(Math.round(G.D / 5), Math.round(2 * RES), Math.round(4 * RES));
       for (let j = 0; j < len; j++) { plot(R, px + j, by + j + 1, fin, a); plot(R, px + j + 1, by + j + 1, sh(fin, 0.82), a); }
     }
     function tailOuter(style, t, ped, S) {
@@ -921,18 +963,18 @@
       if (f.tail === 'heterocercal') { // shark: long upper lobe sweeping up, short lower one
         const beat = anim ? anim.tail : 0, S = f.tailSpan * (1 - 0.25 * Math.abs(beat));
         const up = S * (f.upperLobe || 140) / 100 * 0.8, xt = G.xp + G.tailLen - 1;
-        lobe(R, G.xp - 2, cyp, xt, cyp - up + beat, ped + 0.3, 0.4, fin, a);
-        lobe(R, G.xp - 1, cyp, G.xp + Math.round(G.tailLen * 0.4), cyp + S * 0.6 + beat, ped * 0.8 + 0.3, 0.4, fin, a);
+        lobe(R, G.xp - 2, cyp, xt, cyp - up + beat * RES, ped + 0.3, 0.4 * RES, fin, a);
+        lobe(R, G.xp - 1, cyp, G.xp + Math.round(G.tailLen * 0.4), cyp + S * 0.6 + beat * RES, ped * 0.8 + 0.3, 0.4 * RES, fin, a);
         return;
       }
       if (f.tail === 'fluke') { // whale: flukes seen edge-on, beating up and down
         const beat = anim ? anim.tail : 0, mid = G.xp + G.tailLen * 0.4;
-        lobe(R, G.xp - 2, cyp, mid, cyp + beat * 1.5, ped + 0.3, 1, fin, a);
-        lobe(R, mid, cyp + beat * 1.5, G.xp + G.tailLen - 1, cyp + beat * 3.5 - 1, 1.6, 0.5, fin, a);
+        lobe(R, G.xp - 2, cyp, mid, cyp + beat * 1.5 * RES, ped + 0.3, RES, fin, a);
+        lobe(R, mid, cyp + beat * 1.5 * RES, G.xp + G.tailLen - 1, cyp + (beat * 3.5 - 1) * RES, 1.6 * RES, 0.5 * RES, fin, a);
         return;
       }
       if (f.tail === 'tentacles') {
-        const n = f.tailSpan > 8 ? 4 : 3, time = anim ? anim.time : 0;
+        const n = f.tailSpan > 8 * RES ? 4 : 3, time = anim ? anim.time : 0;
         for (let j = 0; j < n; j++) {
           const u = n === 1 ? 0 : j / (n - 1) - 0.5; // -0.5 .. 0.5 across the fan
           tentacle(R, G.xp - 1, cyp + Math.round(u * ped * 2), u * (0.4 + f.tailSpan * 0.06), G.tailLen + (j % 2) * 2, fin, j * 1.9 + f.patternSeed, time);
@@ -945,7 +987,7 @@
         const t = Math.max(0, (i + 0.5) / G.tailLen), x = G.xp + i;
         const [outer, inner] = tailOuter(f.tail, t, ped, S);
         const droop = f.tail === 'veil' ? Math.round(t * t * S * 0.45) : 0;
-        const yc = cyp + droop + Math.round(beat * t * 2);
+        const yc = cyp + droop + Math.round(beat * t * 2 * RES);
         const fa = f.tail === 'veil' ? a * (1 - 0.35 * t) : a;
         for (let dy = -Math.ceil(outer); dy <= Math.ceil(outer); dy++) {
           const ad = Math.abs(dy);
@@ -971,11 +1013,11 @@
       const gx = G.x0 + G.headLen, gt = G.top[gx], gb = G.bot[gx];
       if (sp === 'fish' && gt !== undefined && gb - gt > 4) { // gill cover
         const mid = (gt + gb) / 2, half = (gb - gt) / 2;
-        for (let y = gt + 2; y <= gb - 2; y++) darken(R, gx - Math.round(((y - mid) / half) ** 2 * 2), y, 0.72);
+        for (let y = gt + 2; y <= gb - 2; y++) darkenPart(R, gx - Math.round(((y - mid) / half) ** 2 * 2), y, 0.72);
       }
       for (let k = 0; k < (sp === 'shark' ? f.gillSlits || 0 : 0); k++) { // shark gill slits
-        const x = gx + k * 2; if (G.top[x] === undefined) break;
-        for (let y = Math.round(lerp(G.top[x], G.bot[x], 0.32)); y <= Math.round(lerp(G.top[x], G.bot[x], 0.66)); y++) darken(R, x, y, 0.62);
+        const x = gx + Math.round(k * 2 * RES); if (G.top[x] === undefined) break;
+        for (let y = Math.round(lerp(G.top[x], G.bot[x], 0.32)); y <= Math.round(lerp(G.top[x], G.bot[x], 0.66)); y++) darkenPart(R, x, y, 0.62);
       }
       if (sp === 'whale') drawWhaleMarks(R, f, G);
       // Where the eye goes is settled first, so a maw can steer round it.
@@ -995,22 +1037,8 @@
         if (anim?.gulp) { plot(R, mx - 1, my, MOUTH); plot(R, mx, my + 1, MOUTH); plot(R, mx + 1, my + 1, MOUTH); }
       }
       // eye
-      if (f.eyePatch) disc(R, ex + 3, ey - 2, 2, [244, 244, 240]); // orca's white patch, behind the eye
-      const iris = hx(f.eyeColor);
-      if (anim && Math.sin(anim.time * 1.1 + 0.7) > 0.97) { // a blink, out of step with any extra eyes
-        if (r === 1) hLine3(R, ex, ey, sh(back, 0.5));
-        else {
-          disc(R, ex, ey, r, sh(back, 0.45)); disc(R, ex, ey, r - 1, sh(back, 0.85));
-          for (let x = ex - r + 1; x <= ex + r - 1; x++) plot(R, x, ey, sh(back, 0.4));
-        }
-      } else if (r === 1) { plot(R, ex, ey, PUPIL); plot(R, ex + 1, ey, iris); plot(R, ex, ey - 1, iris); }
-      else {
-        disc(R, ex, ey, r, sh(back, 0.45));
-        disc(R, ex, ey, r - 1, iris);
-        const pr = Math.round((r - 1) * 0.55), pcx = ex - (r >= 3 ? 1 : 0);
-        disc(R, pcx, ey, pr, PUPIL);
-        if (r >= 3) plot(R, pcx - 1, ey - 1, WHITE);
-      }
+      if (f.eyePatch) disc(R, ex + Math.round(3 * RES), ey - Math.round(2 * RES), Math.round(2 * RES), [244, 244, 240]); // orca's white patch, behind the eye
+      drawEye(R, ex, ey, r, hx(f.eyeColor), back, anim && Math.sin(anim.time * 1.1 + 0.7) > 0.97); // blinks out of step with any extra eyes
       if (f.lips && !f.maw) {
         const lip = mix(back, [255, 170, 150], 0.55);
         plot(R, mx - 1, my, lip); plot(R, mx, my - 1, lip); plot(R, mx, my + 1, lip);
@@ -1038,7 +1066,7 @@
     const eyePoint = (G, f = {}) => {
       if (G.hammer) return [G.x0, G.hammer.top + 1]; // at the tip of the hammer
       if (f.species === 'whale') { // small and low, just past the corner of the mouth
-        const ex = G.x0 + whaleMouthLen(f, G) + 2;
+        const ex = G.x0 + whaleMouthLen(f, G) + Math.round(2 * RES);
         return [ex, Math.round(lerp(G.top[ex], G.bot[ex], 0.6))];
       }
       const ex = G.x0 + Math.max(2, Math.round(G.headLen * (f.species === 'shark' ? 0.55 : 0.42)));
@@ -1060,15 +1088,15 @@
     function drawBigMouth(R, f, G, mx, my, anim) {
       if (f.species === 'shark') {
         if (f.mouth !== 'down') { // wide filter-feeder's slot across the front
-          const w = f.mouthW + 4;
-          for (let i = 0; i < w; i++) plot(R, G.x0 + i, my + (i > w - 2 ? 1 : 0), MOUTH);
+          const w = f.mouthW + Math.round(4 * RES);
+          for (let i = 0; i < w; i++) plot(R, G.x0 + i, my + (i > w - 2 * RES ? 1 : 0), MOUTH);
           if (anim?.gulp) for (let i = 0; i < w - 2; i++) plot(R, G.x0 + i, my + 1, MOUTH);
           return;
         }
-        const w = f.mouthW + 3;
+        const w = f.mouthW + Math.round(3 * RES);
         for (let i = 0; i <= w; i++) {
-          const x = G.x0 + 2 + i; if (G.bot[x] === undefined) break;
-          const y = G.bot[x] - 1 - Math.round(Math.sin(Math.PI * i / w) * 1.2);
+          const x = G.x0 + Math.round(2 * RES) + i; if (G.bot[x] === undefined) break;
+          const y = G.bot[x] - Math.round(RES) - Math.round(Math.sin(Math.PI * i / w) * 1.2 * RES);
           plot(R, x, y, MOUTH);
           if (anim?.gulp) plot(R, x, y + 1, MOUTH);
           if (f.teeth && i % 2 === 0 && i > 0 && i < w) plot(R, x, y - 1, WHITE);
@@ -1077,15 +1105,15 @@
       }
       const len = whaleMouthLen(f, G);
       if (f.mouth === 'down') {
-        for (let i = 2; i <= len; i++) {
-          const x = G.x0 + i; if (G.bot[x] === undefined) break;
-          plot(R, x, G.bot[x] - 2, MOUTH);
-          if (f.teeth && i % 3 === 0) plot(R, x, G.bot[x] - 3, WHITE);
+        for (let i = Math.round(2 * RES); i <= len; i++) {
+          const x = G.x0 + i, y = G.bot[x] - Math.round(2 * RES); if (G.bot[x] === undefined) break;
+          plot(R, x, y, MOUTH);
+          if (f.teeth && i % 3 === 0) plot(R, x, y - 1, WHITE);
         }
         return;
       }
       for (let i = 0; i <= len; i++) {
-        const x = mx + i, y = my + Math.round(Math.pow(i / len, 2) * 2);
+        const x = mx + i, y = my + Math.round(Math.pow(i / len, 2) * 2 * RES);
         plot(R, x, y, MOUTH);
         if (f.teeth && i % 2 === 1 && i < len - 1) plot(R, x, y + 1, WHITE);
       }
@@ -1095,7 +1123,7 @@
     // whale's wrinkled flank, and an orca's grey saddle.
     function drawWhaleMarks(R, f, G) {
       const bx = G.x0 + Math.round(G.headLen * 1.1);
-      if (G.top[bx] !== undefined) { darken(R, bx, G.top[bx] + 1, 0.5); darken(R, bx + 1, G.top[bx + 1] + 1, 0.6); }
+      if (G.top[bx] !== undefined) { darkenPart(R, bx, G.top[bx] + 1, 0.5); darkenPart(R, bx + 1, G.top[bx + 1] + 1, 0.6); }
       if (f.pleats) for (let x = G.x0 + 2; x < G.x0 + G.L * 0.45; x++) {
         for (let y = G.bot[x] - 1; y > lerp(G.top[x], G.bot[x], 0.62); y -= 2) darken(R, x, y, 0.84);
       }
@@ -1157,11 +1185,11 @@
       if (!(f.flipper > 0)) return;
       // Sharks: just behind the gill slits. Whales: about a third of the way
       // back, and always clear of the eye (which sits low, near the mouth).
-      const ax = f.species === 'shark' ? G.x0 + G.headLen + (f.gillSlits || 0) * 2
+      const ax = f.species === 'shark' ? G.x0 + G.headLen + Math.round((f.gillSlits || 0) * 2 * RES)
         : Math.max(eyePoint(G, f)[0] + 5, G.x0 + Math.round(G.L * 0.3));
       if (G.top[ax] === undefined) return;
       const ay = Math.round(lerp(G.top[ax], G.bot[ax], 0.72)), flap = anim ? anim.pect : 0, len = f.flipper;
-      const tx = ax + len * 0.55, ty = ay + len * 0.8 + flap * 1.5, w0 = f.flipper > 10 ? 1.3 : 1.6, fin = hx(f.finColor);
+      const tx = ax + len * 0.55, ty = ay + len * 0.8 + flap * 1.5 * RES, w0 = (f.flipper > 10 * RES ? 1.3 : 1.6) * Math.sqrt(RES), fin = hx(f.finColor);
       lobe(R, ax, ay, tx, ty, w0 + 0.8, 0.9, sh(fin, 0.6));
       lobe(R, ax, ay, tx, ty, w0, 0.35, fin);
     }
@@ -1222,46 +1250,104 @@
           }
         }
       }
-      if (f.extraEyes > 0) { // eyes crowding round the real one, each blinking on its own clock
-        const [mex, mey] = eyePoint(G, f), lid = sh(back, 0.55);
-        const mr = G.hammer ? 1 : Math.min(f.eyeR, Math.max(1, Math.floor(((G.bot[mex] ?? mey + 2) - (G.top[mex] ?? mey - 2)) / 2)));
-        // keep clear of the mouth: the maw and the long whale/shark jaws run back along the head
-        const [mx, my] = mouthPoint(f, G), sp = f.species || 'fish';
-        const mouthEnd = f.maw ? mx + Math.max(4, G.headLen + 1) : sp === 'whale' ? mex - 2 : sp === 'shark' ? G.x0 + G.headLen : mx + f.mouthW + 2;
-        const mouthH = f.maw ? Math.max(2, Math.round(G.D * 0.28)) + 2 : sp === 'fish' ? 2 + Math.ceil(f.mouthW / 2) : sp === 'whale' ? 99 : 3; // a whale's jaw curves the whole way back to the eye
-        const onBody = (x, y) => {
-          if (G.hammer && Math.abs(x - G.x0) <= G.hammer.x1 - G.x0 && y > G.hammer.top && y < G.hammer.bot) return true;
-          return G.top[x] !== undefined && y > G.top[x] && y < G.bot[x];
-        };
-        const fits = (x, y) => {
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!onBody(x + dx, y + dy)) return false;
-          return !(x - 1 <= mouthEnd && Math.abs(y - my) <= mouthH);
-        };
-        eyeCluster(f.extraEyes, mex, mey, seed, fits, mr + 3).forEach(([x, y], i) => {
-          if (anim && Math.sin(time * 1.3 + i * 2.1) > 0.96) { hLine3(R, x, y, lid); return; }
-          const iris = paleIris(i % 2 ? eld : hx(f.eyeColor)); // mismatched
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) plot(R, x + dx, y + dy, dx && dy ? lid : iris);
-          plot(R, x, y, PUPIL);
-        });
-      }
+    }
+    // Extra eyes crowd round the real one, each blinking on its own clock.
+    // They're drawn last but placed only on bare skin: never over the mouth,
+    // fins, gills, barbels, tentacles, lure, runes or photophores.
+    function drawExtraEyes(R, f, G, anim) {
+      if (!(f.extraEyes > 0)) return;
+      const spots = extraEyeSpots(f, G);
+      if (!spots.length) return;
+      const back = hx(f.backColor), eld = hx(f.eldritchColor), time = anim ? anim.time : 0;
+      spots.forEach(([x, y, r], i) => {
+        const iris = paleIris(i % 2 ? eld : hx(f.eyeColor)); // mismatched
+        drawEye(R, x, y, r, iris, back, !!anim && Math.sin(time * 1.3 + i * 2.1) > 0.96);
+      });
+    }
+    const eyeSpotCache = new Map();
+    function extraEyeSpots(f, G) {
+      const key = `${FW}x${FH}|${JSON.stringify(f)}`;
+      if (eyeSpotCache.has(key)) return eyeSpotCache.get(key);
+      // Where every other head and body part can be, over a whole swim cycle
+      // (fins flap, barbels and tentacles sway, the mouth gulps).
+      const parts = new Uint8Array(FW * FH), scratch = raster();
+      PARTS = parts;
+      try {
+        for (let k = -1; k < 24; k++) { // still, then 24 steps over 3.3s (the gulp; barbels sway every ~3.1s)
+          const anim = k < 0 ? null : fishAnim(k * 137.5, 0);
+          drawHead(scratch, f, G, anim); drawPectoral(scratch, f, G, anim); drawExtras(scratch, f, G, anim);
+        }
+      } finally { PARTS = null; }
+      const [mex, mey] = eyePoint(G, f);
+      const mr = G.hammer ? 1 : Math.min(f.eyeR, Math.max(1, Math.floor(((G.bot[mex] ?? mey + 2) - (G.top[mex] ?? mey - 2)) / 2)));
+      const er = mr >= 3 ? 2 : 1, foot = eyeFoot(er); // drawn like the real eye, a size smaller once it's big
+      // keep clear of the mouth: the maw and the long whale/shark jaws run back along the head
+      const [mx, my] = mouthPoint(f, G), sp = f.species || 'fish';
+      const mouthEnd = f.maw ? mx + Math.max(4, G.headLen + 1) : sp === 'whale' ? mex - 2 : sp === 'shark' ? G.x0 + G.headLen : mx + f.mouthW + 2;
+      const mouthH = f.maw ? Math.max(2, Math.round(G.D * 0.28)) + 2 : sp === 'fish' ? 2 + Math.ceil(f.mouthW / 2) : sp === 'whale' ? 99 : 3; // a whale's jaw curves the whole way back to the eye
+      const onBody = (x, y) => {
+        if (G.hammer && Math.abs(x - G.x0) <= G.hammer.x1 - G.x0 && y > G.hammer.top && y < G.hammer.bot) return true;
+        return G.top[x] !== undefined && y > G.top[x] && y < G.bot[x];
+      };
+      const partNear = (x, y) => { // a part on or next to (x, y): leaves a pixel of skin between
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const px = x + dx, py = y + dy;
+          if (px >= 0 && py >= 0 && px < FW && py < FH && parts[py * FW + px]) return true;
+        }
+        return false;
+      };
+      const fits = (x, y) => foot.every(([dx, dy]) => {
+        const px = x + dx, py = y + dy;
+        return onBody(px, py) && !partNear(px, py) && !(px <= mouthEnd && Math.abs(py - my) <= mouthH);
+      });
+      const spots = eyeCluster(f.extraEyes, mex, mey, f.patternSeed, fits, foot).map(([x, y]) => [x, y, er]);
+      if (eyeSpotCache.size > 400) eyeSpotCache.clear();
+      eyeSpotCache.set(key, spots);
+      return spots;
     }
     const paleIris = (c) => luma(c) < 70 ? mix(c, BONE, 0.85) : c; // a dark eye on a dark hide would read as a hole
-    // Greedily pack n 3x3 eyes as close to (cx, cy) as they'll go: nearest
-    // spots first, a pixel of skin between neighbours, each passing fits(x, y).
-    // clear > 0 means (cx, cy) is already taken (the real eye) and nothing may
-    // sit within that Chebyshev distance of it.
-    function eyeCluster(n, cx, cy, seed, fits, clear = 0) {
+    // One eye, real or extra: a dark rim, the iris and a pupil, plus a glint
+    // from r = 3. At r = 1 the rim is just the four corners of a 3x3.
+    function drawEye(R, x, y, r, iris, back, closed = false) {
+      if (closed) {
+        if (r === 1) { hLine3(R, x, y, sh(back, 0.5)); return; }
+        disc(R, x, y, r, sh(back, 0.45)); disc(R, x, y, r - 1, sh(back, 0.85));
+        for (let i = x - r + 1; i <= x + r - 1; i++) plot(R, i, y, sh(back, 0.4));
+        return;
+      }
+      if (r === 1) {
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) plot(R, x + dx, y + dy, dx && dy ? sh(back, 0.45) : iris);
+        plot(R, x, y, PUPIL); return;
+      }
+      disc(R, x, y, r, sh(back, 0.45));
+      disc(R, x, y, r - 1, iris);
+      const pr = r === 2 ? 0 : Math.round((r - 1) * 0.55), pcx = x - (r >= 3 ? 1 : 0); // a one-pixel pupil leaves a ring of iris
+      disc(R, pcx, y, pr, PUPIL);
+      if (r >= 3) plot(R, pcx - 1, y - 1, WHITE);
+    }
+    // The pixels an eye of radius r can cover, open or blinking.
+    function eyeFoot(r) {
+      if (r === 1) return [-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => [dx, dy]));
+      const out = [];
+      for (let dy = -r; dy <= r; dy++) { const w = Math.floor(Math.sqrt(r * r - dy * dy) + 0.25); for (let dx = -w; dx <= w; dx++) out.push([dx, dy]); }
+      return out;
+    }
+    // Greedily pack n eyes (each covering the offsets in foot) as close to
+    // (cx, cy) as they'll go: nearest spots first, anywhere in the frame, a
+    // pixel of skin between neighbours, each passing fits(x, y).
+    function eyeCluster(n, cx, cy, seed, fits, foot = eyeFoot(1)) {
       const pts = [];
-      for (let dy = -14; dy <= 14; dy++) for (let dx = -26; dx <= 26; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) < clear) continue;
-        pts.push([cx + dx, cy + dy, Math.hypot(dx, dy * 1.15) + hash(seed + dx * 7, dy + 40) * 0.4]);
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
+        const dx = x - cx, dy = y - cy;
+        pts.push([x, y, Math.hypot(dx, dy * 1.15) + hash(seed + dx * 7, dy + 40) * 0.4]);
       }
       pts.sort((a, b) => a[2] - b[2]);
-      const out = [];
+      const out = [], taken = new Set(), k = (x, y) => (y + 1000) * 4096 + x + 1000;
       for (const [x, y] of pts) {
         if (out.length >= n) break;
-        if (out.some(([ox, oy]) => Math.max(Math.abs(x - ox), Math.abs(y - oy)) < 4)) continue;
-        if (fits(x, y)) out.push([x, y]);
+        if (foot.some(([dx, dy]) => taken.has(k(x + dx, y + dy))) || !fits(x, y)) continue;
+        out.push([x, y]);
+        for (const [dx, dy] of foot) for (let gy = -1; gy <= 1; gy++) for (let gx = -1; gx <= 1; gx++) taken.add(k(x + dx + gx, y + dy + gy));
       }
       return out;
     }
@@ -1274,8 +1360,8 @@
     // Wispy halo hugging the silhouette — a fish that is not entirely here.
     function voidAura(fish, f, anim) {
       const R = raster(), eld = hx(f.eldritchColor), pulse = anim ? anim.glow : 1, tick = anim ? Math.floor(anim.time * 6) : 0;
-      const solid = (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && fish[(y * FISH_W + x) * 4 + 3] >= SOLID_A;
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+      const solid = (x, y) => x >= 0 && y >= 0 && x < FW && y < FH && fish[(y * FW + x) * 4 + 3] >= SOLID_A;
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
         if (solid(x, y)) continue;
         let a = 0;
         for (let dy = -1; dy <= 1 && !a; dy++) for (let dx = -1; dx <= 1; dx++) if (solid(x + dx, y + dy)) { a = 0.6; break; }
@@ -1327,10 +1413,10 @@
       if (!fxList(f).length) return f;
       const g = { ...f };
       const remap = (fn) => { for (const k of BODY_COLOURS) if (g[k]) g[k] = toHex(fn(hx(g[k]), k)); };
-      if (hasFx(f, 'shiny')) { const deg = 90 + ((f.patternSeed * 37) % 180); remap((c) => hueShift(c, deg)); g.eyeColor = toHex(hueShift(hx(g.eyeColor), deg)); }
+      if (hasFx(f, 'shiny')) { const deg = 90 + ((f.patternSeed * 37) % 180); remap((c) => hueShift(c, deg)); if (g.eyeColor) g.eyeColor = toHex(hueShift(hx(g.eyeColor), deg)); }
       if (hasFx(f, 'albino')) {
         remap((c, k) => mix(c, k === 'patternColor' ? [236, 196, 196] : [255, 238, 232], k === 'patternColor' ? 0.7 : 0.84));
-        g.eyeColor = '#e0304a';
+        if (g.eyeColor) g.eyeColor = '#e0304a';
       }
       if (hasFx(f, 'golden')) remap((c) => mix([118, 70, 10], [255, 228, 124], clamp(luma(c) / 255 * 1.1 + 0.12, 0, 1)));
       if (hasFx(f, 'frozen')) { remap((c) => mix(c, [178, 224, 255], 0.5)); g.glowColor = '#bff4ff'; }
@@ -1339,11 +1425,11 @@
 
     // "Solid" for effect passes includes translucent fins, tentacles and bells.
     const SOLID_A = 40;
-    const solidIn = (R) => (x, y) => x >= 0 && y >= 0 && x < FISH_W && y < FISH_H && R[(y * FISH_W + x) * 4 + 3] >= SOLID_A;
+    const solidIn = (R) => (x, y) => x >= 0 && y >= 0 && x < FW && y < FH && R[(y * FW + x) * 4 + 3] >= SOLID_A;
     function bbox(R) {
-      let x0 = FISH_W, y0 = FISH_H, x1 = -1, y1 = -1;
+      let x0 = FW, y0 = FH, x1 = -1, y1 = -1;
       const solid = solidIn(R);
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) if (solid(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) if (solid(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
       return { x0, y0, x1, y1, ok: x1 >= 0 };
     }
     function sparkle(R, x, y, size, c, a) {
@@ -1380,13 +1466,13 @@
       const b = bbox(F); if (!b.ok) return;
       const solid = solidIn(F), rng = makePRNG(`crystal|${f.patternSeed}`);
       const pts = Array.from({ length: 12 }, () => [ri(rng, b.x0, b.x1), ri(rng, b.y0, b.y1)]);
-      const sweep = anim ? ((anim.time * 22) % (FISH_W + 40)) - 20 : b.x0 + (b.x1 - b.x0) * 0.35;
+      const sweep = anim ? ((anim.time * 22) % (FW + 40)) - 20 : b.x0 + (b.x1 - b.x0) * 0.35;
       const tint = [196, 238, 255], ice = [250, 254, 255];
       for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
         if (!solid(x, y)) continue;
         let d1 = 1e9, d2 = 1e9, cell = 0;
         pts.forEach(([px, py], k) => { const d = Math.hypot(x - px, y - py); if (d < d1) { d2 = d1; d1 = d; cell = k; } else if (d < d2) d2 = d; });
-        const i = (y * FISH_W + x) * 4;
+        const i = (y * FW + x) * 4;
         let c = mix([F[i], F[i + 1], F[i + 2]], tint, 0.4);
         c = hueShift(sh(c, 0.82 + 0.4 * hash(cell, 5)), (cell % 3 - 1) * 25);
         const seam = d2 - d1 < 1.1, glint = Math.abs(x - y * 0.6 - sweep) < 1.5;
@@ -1402,7 +1488,7 @@
     function frost(F, f, anim) {
       const solid = solidIn(F), rime = [236, 250, 255], icicle = [196, 236, 255];
       const tops = [], drips = [];
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
         if (!solid(x, y)) continue;
         if (!solid(x, y - 1)) tops.push(x, y);
         else if (hash(x * 3, y + f.patternSeed) > 0.93) tops.push(x, y); // fleck
@@ -1422,7 +1508,7 @@
     function glowHalo(F, f, anim) {
       const solid = solidIn(F), glow = hx(f.glowColor || '#bff4ff'), pulse = anim ? anim.glow : 1;
       const halo = [];
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+      for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
         if (solid(x, y)) { continue; }
         let d = 9;
         for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (solid(x + dx, y + dy)) d = Math.min(d, Math.hypot(dx, dy));
@@ -1481,31 +1567,31 @@
       const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
       const c1 = hx(scene.bg1), c2 = hx(scene.bg2), light = hx(scene.light), speck = hx(scene.speck);
       const drift = anim ? anim.time : 0, rays = Hb.rays * cfg.lightRays;
-      for (let y = 0; y < FISH_H; y++) {
-        const base = mix(c1, c2, y / (FISH_H - 1));
-        for (let x = 0; x < FISH_W; x++) {
+      for (let y = 0; y < FH; y++) {
+        const base = mix(c1, c2, y / (FH - 1));
+        for (let x = 0; x < FW; x++) {
           plot(R, x, y, base);
           if (rays > 0) {
             const r = Math.sin((x * 0.55 + y * 0.3) * 0.45 + seed * 0.37 + drift * 0.4);
-            if (r > 0.6) plot(R, x, y, light, (r - 0.6) * 0.3 * rays * (1 - y / FISH_H));
+            if (r > 0.6) plot(R, x, y, light, (r - 0.6) * 0.3 * rays * (1 - y / FH));
           }
         }
       }
       const n = Math.round(14 * Hb.snow); // drifting specks / marine snow
       for (let i = 0; i < n; i++) {
-        const x = Math.floor(hash(i, seed) * FISH_W);
-        const y = Math.floor((hash(seed, i) * FISH_H + drift * 2 * (0.5 + hash(i, i))) % FISH_H);
+        const x = Math.floor(hash(i, seed) * FW);
+        const y = Math.floor((hash(seed, i) * FH + drift * 2 * (0.5 + hash(i, i))) % FH);
         plot(R, x, y, speck, 0.45);
       }
       if (Hb.nebula) { // two octaves of cloud in the scene's light colour
-        for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) {
+        for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
           const nb = noise((x + seed + drift * 0.3) / 9, y / 7) * 0.7 + noise(x / 4, (y + seed) / 4) * 0.3;
           if (nb > 0.5) plot(R, x, y, light, (nb - 0.5) * 0.9 * Hb.nebula);
         }
       }
       const stars = Math.round(28 * (Hb.stars || 0));
       for (let i = 0; i < stars; i++) {
-        const x = Math.floor(hash(i + 7, seed) * FISH_W), y = Math.floor(hash(seed, i + 7) * FISH_H);
+        const x = Math.floor(hash(i + 7, seed) * FW), y = Math.floor(hash(seed, i + 7) * FH);
         const tw = anim ? 0.35 + 0.65 * Math.abs(Math.sin(drift * 1.7 + i * 1.3)) : 0.4 + 0.6 * hash(i, seed + 1);
         plot(R, x, y, speck, tw);
         if (hash(i, i + seed) > 0.85) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) plot(R, x + dx, y + dy, speck, 0.3 * tw);
@@ -1530,9 +1616,9 @@
     function jellyGeom(f, anim) {
       const pulse = anim ? Math.sin(anim.time * 2.4 + (f.patternSeed % 7)) : 0;
       const reach = Math.max(f.tentN ? f.tentLen : 0, f.oralArms ? f.oralLen : 0);
-      const top = Math.max(2, Math.round((FISH_H - f.bellH - reach) / 2));
+      const top = Math.max(2, Math.round((FH - f.bellH - reach) / 2));
       const W = f.bellW * (1 + 0.08 * pulse), H = Math.max(4, f.bellH * (1 - 0.1 * pulse));
-      return { cx: (FISH_W - 1) / 2, top, W, H, rim: Math.round(top + H), pulse, time: anim ? anim.time : 0 };
+      return { cx: (FW - 1) / 2, top, W, H, rim: Math.round(top + H), pulse, time: anim ? anim.time : 0 };
     }
     const bellHalf = (f, J, y) => { const v = (y - J.top) / J.H; return v < 0 || v > 1 ? -1 : (J.W / 2) * (BELLS[f.bellShape] || BELLS.dome)(v); };
     function jellyMark(f, J, x, y, v) {
@@ -1620,30 +1706,43 @@
         const glyph = GLYPHS[seed % GLYPHS.length], x = Math.round(J.cx) - 1, y = Math.round(J.top + J.H * 0.3);
         for (let gy = 0; gy < 3; gy++) for (let gx = 0; gx < 3; gx++) if (glyph[gy][gx]) plot(R, x + gx, y + gy, eld, 0.55 + 0.45 * pulse);
       }
-      if (f.extraEyes > 0) { // a cluster of eyes in the jelly, blinking out of step
-        const cx = Math.round(J.cx + (hash(seed, 7) - 0.5) * J.W * 0.25), cy = Math.round(J.top + J.H * (0.4 + 0.15 * hash(seed, 11)));
-        const inside = (x, y) => [y - 1, y, y + 1].every(yy => bellHalf(f, J, yy) - 1 >= Math.abs(x - J.cx)) && y + 1 <= J.rim;
-        eyeCluster(f.extraEyes, cx, cy, seed, inside).forEach(([x, y], i) => {
-          if (anim && Math.sin(J.time * 1.3 + i * 2.1) > 0.96) { hLine3(R, x, y, sh(hx(f.backColor), 0.5)); return; }
-          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!(dx && dy)) plot(R, x + dx, y + dy, paleIris(i % 2 ? eld : hx(f.eyeColor)));
-          plot(R, x, y, PUPIL);
-        });
-      }
+    }
+
+    // Every length in a feature object, in pixels. Scaling these (and nothing
+    // else) by RES redraws the same creature at RES times the size.
+    const LENGTH_KEYS = ['bodyLen', 'bodyDepth', 'tailLen', 'tailSpan', 'dorsalH', 'analH', 'pectoral', 'flipper',
+      'tusk', 'barbelLen', 'tentacleLen', 'mouthW', 'eyeR', 'bellW', 'bellH', 'tentLen', 'oralLen'];
+    function scaleFeatures(f, k) {
+      const g = { ...f };
+      for (const key of LENGTH_KEYS) if (typeof g[key] === 'number' && g[key] > 0) g[key] = Math.max(1, Math.round(g[key] * k));
+      if (f.eyeR > 0) g.eyeR = Math.max(1, Math.round(f.eyeR * Math.sqrt(k)));
+      return g;
     }
 
     // ---- entry points ------------------------------------------------------
     // Paint a fish from an explicit feature object into a FISH_W x FISH_H 2D
-    // context. All drawing happens in plain RGBA buffers; the context is only
-    // touched once, by putImageData, so callers' transforms don't apply.
-    function paintFish(ctx, f0, habitat, cfg, bgSeed, anim = null) {
+    // context, or frameSize(res) at a higher resolution. All drawing happens
+    // in plain RGBA buffers; the context is only touched once, by
+    // putImageData, so callers' transforms don't apply.
+    function paintFish(ctx, f0, habitat, cfg, bgSeed, anim = null, res = 1) {
+      if (res === RES) return paintFrame(ctx, f0, habitat, cfg, bgSeed, anim);
+      const was = [FW, FH, RES];
+      [FW, FH] = frameSize(res); RES = res;
+      try { return paintFrame(ctx, f0, habitat, cfg, bgSeed, anim); } finally { [FW, FH, RES] = was; }
+    }
+    function paintFrame(ctx, f0, habitat, cfg, bgSeed, anim) {
       const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT];
       const scene = cfg.scene || Hb.scene;
-      const f = effectColours(f0); // mutation effects recolour a copy, never the caller's object
+      let f = effectColours(f0); // mutation effects recolour a copy, never the caller's object
+      if (RES !== 1) {
+        f = scaleFeatures(f, RES);
+        if (anim) anim = { ...anim, waveAmp: anim.waveAmp * RES, bob: Math.round(anim.bob * RES) };
+      }
       const jelly = f.species === 'jelly';
       const out = raster();
       if (!cfg.transparentBackground) paintBackground(out, habitat, scene, cfg, bgSeed, anim);
       if (anim && hasFx(f, 'frozen')) anim = { ...anim, waveAmp: anim.waveAmp * 0.35, tail: anim.tail * 0.35, pect: anim.pect * 0.35, time: anim.time * 0.5 };
-      if (anim && jelly) anim = { ...anim, waveAmp: 0, bob: Math.round(Math.sin(anim.time * 0.9 + 1) * 1.5) }; // drifts, doesn't swim
+      if (anim && jelly) anim = { ...anim, waveAmp: 0, bob: Math.round(Math.sin(anim.time * 0.9 + 1) * 1.5 * RES) }; // drifts, doesn't swim
 
       const fins = raster(), body = raster();
       let G = null;
@@ -1664,29 +1763,30 @@
         drawHead(body, f, G, anim);
         drawPectoral(body, f, G, anim);
         drawExtras(body, f, G, anim);
+        drawExtraEyes(body, f, G, anim);
       }
       over(fins, body);
       const fish = applyEffects(f.aura ? voidAura(fins, f, anim) : fins, f, anim);
 
       // Composite with optional mirroring + a swim wave that grows toward the tail.
       const flip = !!f.faceRight;
-      for (let x = 0; x < FISH_W; x++) {
+      for (let x = 0; x < FW; x++) {
         let dy = 0;
         if (anim) {
           const w = G ? clamp((x - (G.x0 + G.L * 0.3)) / (G.L * 0.7 + G.tailLen), 0, 1) : 0;
-          dy = Math.round(anim.waveAmp * w * Math.sin(anim.wave - x * 0.25)) + anim.bob;
+          dy = Math.round(anim.waveAmp * w * Math.sin(anim.wave - x * 0.25 / RES)) + anim.bob;
         }
-        const dx = flip ? FISH_W - 1 - x : x;
-        for (let y = 0; y < FISH_H; y++) {
-          const i = (y * FISH_W + x) * 4, a = fish[i + 3];
+        const dx = flip ? FW - 1 - x : x;
+        for (let y = 0; y < FH; y++) {
+          const i = (y * FW + x) * 4, a = fish[i + 3];
           if (a) plot(out, dx, y + dy, [fish[i], fish[i + 1], fish[i + 2]], a / 255);
         }
       }
 
       // Bubbles rise from the mouth: a steady stream when animated, a seeded
       // few frozen in place otherwise. (Jellyfish don't breathe air bubbles.)
-      if (jelly) { ctx.putImageData(new ImageData(out, FISH_W, FISH_H), 0, 0); return f0; }
-      const [mx0, my] = mouthPoint(f, G), mx = flip ? FISH_W - 1 - mx0 : mx0;
+      if (jelly) { ctx.putImageData(new ImageData(out, FW, FH), 0, 0); return f0; }
+      const [mx0, my] = mouthPoint(f, G), mx = flip ? FW - 1 - mx0 : mx0;
       const bc = hx(scene.bubble);
       if (anim) {
         if (cfg.bubbleChance > 0) for (let i = 0; i < 3; i++) {
@@ -1700,7 +1800,7 @@
           for (let k = 0; k < n; k++) bubble(out, mx + ri(rng, -1, 1), my - 3 - k * 4 - ri(rng, 0, 1), bc, k > 0, 0.85);
         }
       }
-      ctx.putImageData(new ImageData(out, FISH_W, FISH_H), 0, 0);
+      ctx.putImageData(new ImageData(out, FW, FH), 0, 0);
       return f0;
     }
 
@@ -1717,9 +1817,10 @@
       return rollAny(seedStr, habitat, { ...DEFAULT_FISH_CONFIG, ...config }, species);
     }
     // Draw from an explicit feature object (creator), bypassing the roll.
-    function drawFishFeatures(ctx, features, habitat = FIRST_HABITAT, config = {}, anim = null) {
+    // `res` > 1 paints a bigger creature into a frameSize(res) canvas.
+    function drawFishFeatures(ctx, features, habitat = FIRST_HABITAT, config = {}, anim = null, res = 1) {
       const cfg = { ...DEFAULT_FISH_CONFIG, ...config };
-      return paintFish(ctx, { ...features }, habitat, cfg, features.patternSeed, anim);
+      return paintFish(ctx, { ...features }, habitat, cfg, features.patternSeed, anim, res);
     }
     // Pure idle-swim driver: (elapsed ms, per-fish phase) -> per-frame deltas,
     // so the same fish swims identically on every client without shared state.
@@ -1841,7 +1942,7 @@
       { group: 'Jellyfish', key: 'bellW', type: 'int', label: 'Bell width', min: 8, max: 30, only: ['jelly'] },
       { group: 'Jellyfish', key: 'bellH', type: 'int', label: 'Bell height', min: 5, max: 22, only: ['jelly'] },
       { group: 'Jellyfish', key: 'bellAlpha', type: 'int', label: 'Bell opacity %', min: 25, max: 100, only: ['jelly'] },
-      { group: 'Jellyfish', key: 'tentN', type: 'int', label: 'Tentacles', min: 0, max: 28, only: ['jelly'] },
+      { group: 'Jellyfish', key: 'tentN', type: 'int', label: 'Tentacles', min: JELLY_MIN_TENTACLES, max: 28, only: ['jelly'] },
       { group: 'Jellyfish', key: 'tentLen', type: 'int', label: 'Tentacle length', min: 0, max: 34, only: ['jelly'] },
       { group: 'Jellyfish', key: 'oralArms', type: 'int', label: 'Oral arms', min: 0, max: 4, only: ['jelly'] },
       { group: 'Jellyfish', key: 'oralLen', type: 'int', label: 'Arm length', min: 0, max: 28, only: ['jelly'] },
@@ -1850,11 +1951,11 @@
       { group: 'Jellyfish', key: 'rimLights', type: 'bool', label: 'Rim lights', only: ['jelly'] },
     ];
     { // Shared by every species (jellies included) / fish-only fields.
-      const shared = ['backColor', 'bellyColor', 'finColor', 'patternColor', 'patternSeed', 'glowColor', 'eyeColor',
-        'extraEyes', 'runes', 'aura', 'eldritchColor', 'effects'];
+      const shared = ['backColor', 'bellyColor', 'finColor', 'patternColor', 'patternSeed', 'glowColor',
+        'runes', 'aura', 'eldritchColor', 'effects'];
       // What the shared colours are called on a jellyfish (all under one group).
       const jellyLabels = { backColor: 'Bell', bellyColor: 'Inner bell', finColor: 'Tentacles', patternColor: 'Markings / arms',
-        glowColor: 'Rim-light colour', eyeColor: 'Iris (extra eyes)', patternSeed: 'Pattern seed' };
+        glowColor: 'Rim-light colour', patternSeed: 'Pattern seed' };
       for (const field of FEATURE_SCHEMA) {
         if (jellyLabels[field.key]) field.jelly = { group: 'Colour', label: jellyLabels[field.key] };
         if (shared.includes(field.key)) field.only = ALL_SPECIES;
@@ -1967,6 +2068,17 @@
     };
     const CORAL_COLOURS = ['#ff6a8a', '#ff9a4a', '#b07aff', '#ffd060', '#4ad0c0', '#ff4a6a', '#7aa0ff'];
     const STONE_COLOURS = ['#8a8a84', '#6a6258', '#9a8a70', '#5a5a60'];
+    // How big each creature is drawn when they share a scene, relative to its
+    // 64x48 sprite. Big kinds are painted at that resolution (paintFish's
+    // `res`), not upscaled, so every creature has the same pixel size. Fish
+    // set the floor at 1 and the big kinds scale up from there.
+    const OCEAN_SCALE = {
+      fish: 1, shark: 1.6, whale: 2.4, jelly: 1,
+      great: 1.8, hammerhead: 1.6, thresher: 1.6, tiger: 1.8, whaleShark: 2.6,
+      orca: 2, narwhal: 1.8, humpback: 2.6, sperm: 2.6, blue: 3,
+      moon: 1, box: 1, comb: 1, nettle: 1.3, lionsMane: 1.6,
+    };
+    const oceanScale = (f) => OCEAN_SCALE[f.kind] ?? OCEAN_SCALE[f.species || 'fish'] ?? 1;
     function makeOcean(habitat, scene, cfg, W, H, seed = 1) {
       const Hb = HABITATS[habitat] || HABITATS[FIRST_HABITAT], F = OCEAN_FLOORS[habitat] || {};
       const c1 = hx(scene.bg1), c2 = hx(scene.bg2), light = hx(scene.light), speck = hx(scene.speck), bub = hx(scene.bubble);
@@ -2523,92 +2635,225 @@
 
     // ---- ocean view ----
     // Every seed variant at once, swimming in a habitat-themed scene. Sprites
-    // repaint at ~12fps (their own swim cycle); positions and the scene move
-    // at ~30fps so the motion stays smooth. Back-of-tank creatures swim
-    // slower and are hazed toward the water colour.
-    let ocean = null, oceanRAF = 0, oceanResize = 0;
+    // repaint at ~10fps (their own swim cycle), a third of them per frame so
+    // the big ones don't all land on one; positions and the scene move at
+    // ~30fps so the motion stays smooth. Back-of-tank creatures swim
+    // slower and are hazed toward the water colour. Pairs breed and then
+    // leave (see lifeCycle), so the crowd keeps changing.
+    let ocean = null, oceanRAF = 0, oceanResize = 0, oceanMax = false;
+    // Maximized, the scene fills the whole window over the lab; the swimmers
+    // keep their places when it's rebuilt at the new size.
+    function setOceanMax(on) {
+      if (oceanMax === on) return;
+      oceanMax = on; renderAll();
+    }
     const OCEAN_COUNT = 32;
     const SPEEDS = { fish: [10, 24], shark: [14, 22], whale: [5, 9], jelly: [1, 3] };
+    // Depth layers, back to front. Further back a creature is painted at a
+    // lower resolution (smaller, same pixel size), swims slower and is shaded
+    // toward dark water. Big kinds lean to the back.
+    const LAYERS = [
+      { scale: 0.66, speed: 0.6, dark: 0.5 },
+      { scale: 0.82, speed: 0.8, dark: 0.28 },
+      { scale: 1, speed: 1, dark: 0.06 },
+    ];
     const toCanvas = (data, w, h) => {
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       c.getContext('2d').putImageData(new ImageData(data, w, h), 0, 0); return c;
     };
-    function spriteBox(cv) { // the creature's opaque bounds inside its 64x48 frame
-      const d = cv.getContext('2d').getImageData(0, 0, FISH_W, FISH_H).data;
-      let x0 = FISH_W, y0 = FISH_H, x1 = -1, y1 = -1;
-      for (let y = 0; y < FISH_H; y++) for (let x = 0; x < FISH_W; x++) if (d[(y * FISH_W + x) * 4 + 3] > SOLID_A) {
+    function spriteBox(cv) { // the creature's opaque bounds inside its frame
+      const w = cv.width, h = cv.height, d = cv.getContext('2d').getImageData(0, 0, w, h).data;
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > SOLID_A) {
         if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
       }
-      return x1 < 0 ? { x0: 0, y0: 0, x1: FISH_W - 1, y1: FISH_H - 1 } : { x0, y0, x1, y1 };
+      return x1 < 0 ? { x0: 0, y0: 0, x1: w - 1, y1: h - 1 } : { x0, y0, x1, y1 };
     }
     function renderOcean() {
       const main = $('main'); main.innerHTML = '';
-      const avail = Math.max(320, main.clientWidth - 40), scale = avail >= 1100 ? 3 : 2;
-      const W = Math.floor(avail / scale), H = clamp(Math.floor((innerHeight - 120) / scale), 150, Math.round(W * 0.66));
+      document.body.classList.toggle('ocean-max', oceanMax);
+      let scale, W, H;
+      if (oceanMax) { // fill the window; bigger pixels on bigger screens so it stays about as crowded
+        const aw = innerWidth - 26, ah = innerHeight - 66;
+        scale = clamp(Math.round(aw / 480), 2, 6);
+        W = Math.floor(aw / scale); H = Math.max(100, Math.floor(ah / scale));
+      } else {
+        const avail = Math.max(320, main.clientWidth - 40); scale = avail >= 1100 ? 3 : 2;
+        W = Math.floor(avail / scale); H = clamp(Math.floor((innerHeight - 120) / scale), 150, Math.round(W * 0.66));
+      }
       const canvas = document.createElement('canvas'); canvas.className = 'ocean';
       canvas.width = W; canvas.height = H; canvas.style.width = `${W * scale}px`; canvas.style.height = `${H * scale}px`;
       const cap = document.createElement('div'); cap.className = 'ocean-cap';
+      const maxBtn = document.createElement('button');
+      maxBtn.textContent = oceanMax ? '🗗 Restore (Esc)' : '⛶ Maximize';
+      maxBtn.title = oceanMax ? 'Back to the lab' : 'Fill the window with the ocean';
+      maxBtn.addEventListener('click', () => setOceanMax(!oceanMax));
+      const bar = document.createElement('div'); bar.className = 'ocean-bar'; bar.append(cap, maxBtn);
+      const wrap = document.createElement('div'); wrap.className = oceanMax ? 'ocean-wrap max' : 'ocean-wrap';
+      wrap.append(canvas, bar);
       const seed = seedInput.value || 'fish_1000', base = seed.replace(/#\d+$/, '');
-      section(`${HABITATS[habitat].label} · seed variants of ${base}`, canvas); main.append(cap);
+      section(`${HABITATS[habitat].label} · seed variants of ${base}`, wrap);
 
       let sceneSeed = 0; for (const ch of base) sceneSeed = (sceneSeed * 31 + ch.charCodeAt(0)) % 9973;
       const cfg = cfgFor(habitat), scn = makeOcean(habitat, scenes[habitat], cfg, W, H, sceneSeed);
       const life = new Uint8ClampedArray(W * H * 4), lifeImg = new ImageData(life, W, H);
-      const old = ocean && ocean.habitat === habitat ? new Map(ocean.swimmers.map((s) => [s.seed, s])) : new Map();
       const c1 = hx(scenes[habitat].bg1), c2 = hx(scenes[habitat].bg2);
-      const swimmers = Array.from({ length: OCEAN_COUNT }, (_, k) => {
-        const s = `${base}#${k}`, f = featuresFromSeed(s, habitat, config, pinnedSpecies()), sp = f.species || 'fish';
-        const cv = document.createElement('canvas'); cv.width = FISH_W; cv.height = FISH_H;
-        paintFish(cv.getContext('2d'), f, habitat, { ...cfg, transparentBackground: true }, 1, null);
-        const box = spriteBox(cv), depth = hash(k, 3), [lo, hi] = SPEEDS[sp];
-        const prev = old.get(s);
+      // k numbers every creature in this ocean: the seed variants are #0-31,
+      // the young carry on from there.
+      function makeSwimmer(f, k, seed, more = {}) {
+        const sp = f.species || 'fish', size = oceanScale(f);
+        const layer = Math.min(LAYERS.length - 1, Math.floor(hash(k, 3) ** Math.sqrt(size) * LAYERS.length)), L = LAYERS[layer];
+        // Painted at its own resolution: one sprite pixel is one scene pixel
+        // whatever the creature's size and depth.
+        const res = size * L.scale, cv = document.createElement('canvas'); [cv.width, cv.height] = frameSize(res);
+        paintFish(cv.getContext('2d'), f, habitat, { ...cfg, transparentBackground: true }, 1, null, res);
+        const box = spriteBox(cv), [lo, hi] = SPEEDS[sp];
+        const depth = (layer + hash(k, 13) * 0.98) / LAYERS.length; // draw order: back to front
         const sw = {
-          seed: s, k, f, sp, cv, box, depth, phase: k * 1.37,
-          speed: lerp(lo, hi, hash(k, 5)) * (0.55 + 0.45 * depth),
-          x: prev ? prev.x : hash(k, 7) * (W - FISH_W), y: prev ? prev.y : hash(k, 9) * (H * 0.75) - box.y0,
-          dir: prev ? prev.dir : hash(k, 11) > 0.5 ? 1 : -1, ty: prev ? prev.ty : null,
+          seed, k, f, sp, cv, box, layer, depth, res, phase: k * 1.37,
+          speed: lerp(lo, hi, hash(k, 5)) * L.speed * Math.sqrt(size),
+          x: hash(k, 7) * (W - cv.width), y: hash(k, 9) * (H * 0.75) - box.y0, dir: hash(k, 11) > 0.5 ? 1 : -1,
+          gen: 0, parents: null, born: -Infinity, readyAt: 0, state: 'free', mate: null, ...more,
         };
-        if (sw.ty === null) sw.ty = sw.y;
+        sw.ty = sw.y;
         return sw;
-      }).sort((a, b) => a.depth - b.depth); // back of the tank first
+      }
+      // The same population carries on through a resize or maximize; a new
+      // seed, habitat, species or generator setting starts a fresh one.
+      const popKey = `${habitat}|${base}|${pinnedSpecies()}|${JSON.stringify(config)}`;
+      const keep = ocean && ocean.popKey === popKey;
+      const swimmers = keep ? ocean.swimmers
+        : Array.from({ length: OCEAN_COUNT }, (_, k) => makeSwimmer(featuresFromSeed(`${base}#${k}`, habitat, config, pinnedSpecies()), k, `${base}#${k}`))
+          .sort((a, b) => a.depth - b.depth); // back of the tank first
+      const pop = keep ? ocean.pop : { next: OCEAN_COUNT, born: 0, left: 0, nextMate: null, hearts: [] };
 
       const ctx = canvas.getContext('2d'), lifeCv = document.createElement('canvas'); lifeCv.width = W; lifeCv.height = H;
-      const lctx = lifeCv.getContext('2d'), px = scn.plotter(life, W);
-      ocean = { habitat, swimmers, W, H, scale, canvas, back: toCanvas(scn.backdrop, W, H), rays: toCanvas(scn.rays, scn.RW, H), last: 0, lastSprite: 0 };
+      const lctx = lifeCv.getContext('2d'), lifePx = scn.plotter(life, W);
+      ocean = { habitat, popKey, pop, swimmers, W, H, scale, canvas, back: toCanvas(scn.backdrop, W, H), rays: toCanvas(scn.rays, scn.RW, H), last: 0, tickN: 0 };
       const yRange = (sw) => { // keep the body between the surface and the floor under it
-        const cx = clamp(Math.round(sw.x + (sw.box.x0 + sw.box.x1) / 2), 0, W - 1);
-        return [2 - sw.box.y0, Math.min(H, scn.floorAt[cx]) - sw.box.y1 - 2];
+        const cx = clamp(Math.round(sw.x + (sw.box.x0 + sw.box.x1 + 1) / 2), 0, W - 1);
+        return [2 - sw.box.y0, Math.min(H, scn.floorAt[cx]) - sw.box.y1 - 3];
       };
       const flipped = (sw) => sw.sp !== 'jelly' && sw.dir > 0; // sprites face left; mirror them to swim right
-      const bounds = (sw) => (flipped(sw) ? [FISH_W - 1 - sw.box.x1, FISH_W - 1 - sw.box.x0] : [sw.box.x0, sw.box.x1]);
+      const bounds = (sw) => (flipped(sw) ? [sw.cv.width - 1 - sw.box.x1, sw.cv.width - sw.box.x0] : [sw.box.x0, sw.box.x1 + 1]);
+
+      // body centre and size, in scene pixels
+      const centre = (sw) => { const [bx0, bx1] = bounds(sw); return [sw.x + (bx0 + bx1) / 2, sw.y + (sw.box.y0 + sw.box.y1 + 1) / 2]; };
+      const bodyW = (sw) => sw.box.x1 - sw.box.x0 + 1, bodyH = (sw) => sw.box.y1 - sw.box.y0 + 1;
 
       function step(t, dt) {
         for (const sw of swimmers) {
-          sw.x += sw.dir * sw.speed * dt;
-          if (sw.sp === 'jelly') { // drifts; each pulse lifts it a little, then it sinks
+          if (sw === hovered) continue; // holds still under the pointer, still swimming in place
+          const court = sw.state === 'court', leaving = sw.state === 'leave';
+          if (court) { // head for the spot halfway between the pair
+            const [ax, ay] = centre(sw), [bx, by] = centre(sw.mate), mx = (ax + bx) / 2;
+            if (Math.abs(mx - ax) > 3) sw.dir = mx > ax ? 1 : -1;
+            sw.ty = sw.y + ((ay + by) / 2 - ay);
+          }
+          const speed = court ? Math.max(sw.speed * 1.6, 8) : leaving ? sw.speed * 1.8 + 4 : sw.speed;
+          sw.x += sw.dir * speed * dt;
+          if (court) {
+            sw.y += (sw.ty - sw.y) * Math.min(1, dt * 1.2);
+          } else if (sw.sp === 'jelly') { // drifts; each pulse lifts it a little, then it sinks
             sw.y += (Math.max(0, Math.sin(t * 2.4 + (sw.f.patternSeed % 7))) ** 2 * -9 + 2.2) * dt;
           } else {
             sw.y += (sw.ty - sw.y) * Math.min(1, dt * 0.4) + Math.sin(t * 0.9 + sw.phase) * 2 * dt;
             if (Math.random() < dt * 0.25) sw.ty = sw.y + (Math.random() - 0.5) * H * 0.35; // wander to a new depth
-            if (Math.random() < dt * 0.02) sw.dir = -sw.dir;                               // or change its mind
+            if (!leaving && Math.random() < dt * 0.02) sw.dir = -sw.dir;                   // or change its mind
           }
           const [bx0, bx1] = bounds(sw);
-          if (sw.dir < 0 && sw.x + bx1 < 6) sw.dir = 1;          // turn once mostly out of view
-          else if (sw.dir > 0 && sw.x + bx0 > W - 6) sw.dir = -1;
+          if (!leaving && !court) {
+            if (sw.dir < 0 && sw.x + bx1 < 6) sw.dir = 1;          // turn once mostly out of view
+            else if (sw.dir > 0 && sw.x + bx0 > W - 6) sw.dir = -1;
+          }
           const [ylo, yhi] = yRange(sw);
           if (sw.y > yhi) { sw.y = Math.max(ylo, yhi); sw.ty = Math.min(sw.ty, yhi - 10); }
           if (sw.y < ylo) { sw.y = ylo; sw.ty = Math.max(sw.ty, ylo + 10); }
         }
+        lifeCycle(t);
       }
-      function repaintSprites(t) {
-        for (const sw of swimmers) {
+
+      // Every so often two random creatures of the same species pair up and
+      // swim to meet; when they do they have two young (bred as in the pen,
+      // with its mutation and effect odds) and, a little later, swim out of
+      // the scene for good. Two young for two parents keeps the numbers
+      // steady while the faces keep changing. Jellies fade instead of leaving,
+      // since they'd take minutes to drift off.
+      const MATE = { every: [8, 16], pairs: 2, mature: 25, giveUp: 45, rest: 20, leave: [4, 10], fade: 3 };
+      const rnd = ([a, b]) => lerp(a, b, Math.random());
+      const heart = (x, y, t0) => pop.hearts.push({ x, y, t0 });
+      function pairUp(t) {
+        const free = swimmers.filter((s) => s.state === 'free' && t >= s.readyAt);
+        for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+        for (const a of free) {
+          const b = free.find((o) => o !== a && o.layer === a.layer && canBreed(a.f, o.f)); // same depth, so they can meet
+          if (!b) continue;
+          a.state = b.state = 'court'; a.mate = b; b.mate = a; a.courtAt = b.courtAt = t; a.nextHeart = t; b.nextHeart = t + 0.8;
+          return;
+        }
+      }
+      function birth(a, b, t) {
+        const [ax, ay] = centre(a), [bx, by] = centre(b), cx = (ax + bx) / 2, cy = (ay + by) / 2;
+        const gen = Math.max(a.gen, b.gen) + 1;
+        for (let i = 0; i < 2; i++) {
+          const k = pop.next++, seed = `${base}|young|${k}`;
+          const { child } = breedFeatures(a.f, b.f, seed, habitat, config, mutation, effectChance);
+          const kid = makeSwimmer(child, k, seed, { gen, parents: [a.k, b.k], born: t, readyAt: t + MATE.mature, dir: i ? 1 : -1 });
+          kid.x = cx - (kid.box.x0 + kid.box.x1) / 2 + (i ? 4 : -4); kid.y = kid.ty = cy - (kid.box.y0 + kid.box.y1) / 2;
+          const at = swimmers.findIndex((s) => s.depth > kid.depth);
+          swimmers.splice(at < 0 ? swimmers.length : at, 0, kid);
+        }
+        for (const p of [a, b]) { p.state = 'bred'; p.mate = null; p.leaveAt = t + rnd(MATE.leave); }
+        for (let i = 0; i < 4; i++) heart(cx + (i - 1.5) * 5, cy - 4, t + i * 0.15);
+        pop.born += 2; showCap();
+      }
+      function lifeCycle(t) {
+        if (pop.nextMate === null) pop.nextMate = t + 3;
+        if (t >= pop.nextMate) {
+          pop.nextMate = t + rnd(MATE.every);
+          if (swimmers.filter((s) => s.state === 'court').length < MATE.pairs * 2) pairUp(t);
+        }
+        for (const a of swimmers) {
+          if (a.state === 'court' && a.mate.k > a.k) { // each pair once
+            const b = a.mate, [ax, ay] = centre(a), [bx, by] = centre(b);
+            if (Math.abs(ax - bx) < (bodyW(a) + bodyW(b)) / 4 + 3 && Math.abs(ay - by) < Math.max(bodyH(a), bodyH(b)) / 3 + 3) birth(a, b, t);
+            else if (t - a.courtAt > MATE.giveUp) for (const p of [a, b]) { p.state = 'free'; p.mate = null; p.readyAt = t + MATE.rest; }
+          }
+          if (a.state === 'court' && t >= a.nextHeart) { const [x, y] = centre(a); heart(x, a.y + a.box.y0 - 4, t); a.nextHeart = t + 1.6; }
+          if (a.state === 'bred' && t >= a.leaveAt) { // off to the nearer side
+            a.state = 'leave'; a.leftAt = t; a.dir = centre(a)[0] < W / 2 ? -1 : 1; a.ty = a.y;
+          }
+        }
+        for (let i = swimmers.length - 1; i >= 0; i--) {
+          const s = swimmers[i]; if (s.state !== 'leave') continue;
+          const [bx0, bx1] = bounds(s);
+          if (s.x + bx1 < 0 || s.x + bx0 > W || t - s.leftAt > (s.sp === 'jelly' ? MATE.fade : 60)) {
+            swimmers.splice(i, 1); pop.left++; if (hovered === s) hovered = null; showCap();
+          }
+        }
+        pop.hearts = pop.hearts.filter((h) => t - h.t0 < 2);
+      }
+      // how opaque a creature is drawn: the young fade in, leaving jellies fade out
+      const alphaOf = (sw, t) => Math.min(clamp((t - sw.born) / 1.2, 0, 1),
+        sw.state === 'leave' && sw.sp === 'jelly' ? clamp(1 - (t - sw.leftAt) / MATE.fade, 0, 1) : 1);
+      const HEART = ['.x.x.', 'xxxxx', 'xxxxx', '.xxx.', '..x..'];
+      function drawHeart(h, t) {
+        const age = t - h.t0; if (age < 0) return;
+        const x = Math.round(h.x - 2), y = Math.round(h.y - 2 - age * 6);
+        ctx.globalAlpha = clamp(1.6 - age * 0.8, 0, 1); ctx.fillStyle = '#ff7aa8';
+        HEART.forEach((row, j) => { for (let i = 0; i < 5; i++) if (row[i] === 'x') ctx.fillRect(x + i, y + j, 1, 1); });
+        ctx.globalAlpha = 1;
+      }
+      function repaintSprites(t, part = -1) { // part 0..2: just that third of them
+        for (const [i, sw] of swimmers.entries()) {
+          if (part >= 0 && i % 3 !== part) continue;
           const g = sw.cv.getContext('2d');
-          paintFish(g, sw.f, habitat, { ...cfg, transparentBackground: true }, 1, fishAnim(t, sw.phase));
-          const haze = (1 - sw.depth) * 0.38; // distant ones fade toward the water around them
-          if (haze > 0.02) {
+          paintFish(g, sw.f, habitat, { ...cfg, transparentBackground: true }, 1, fishAnim(t, sw.phase), sw.res);
+          const dark = LAYERS[sw.layer].dark; // the further back, the more it sinks into dark water
+          if (dark > 0) {
             g.globalCompositeOperation = 'source-atop';
-            g.fillStyle = toHex(mix(c1, c2, clamp((sw.y + FISH_H / 2) / H, 0, 1))); g.globalAlpha = haze;
-            g.fillRect(0, 0, FISH_W, FISH_H);
+            g.fillStyle = toHex(sh(mix(c1, c2, clamp((sw.y + sw.cv.height / 2) / H, 0, 1)), 0.45)); g.globalAlpha = dark;
+            g.fillRect(0, 0, sw.cv.width, sw.cv.height);
             g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
           }
         }
@@ -2617,12 +2862,17 @@
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(ocean.back, 0, 0);
         ctx.drawImage(ocean.rays, Math.round(-8 + Math.sin(t / 1000 * 0.25) * 6), 0);
-        life.fill(0); scn.drawLife(px, t / 1000); lctx.putImageData(lifeImg, 0, 0); ctx.drawImage(lifeCv, 0, 0);
+        life.fill(0); scn.drawLife(lifePx, t / 1000); lctx.putImageData(lifeImg, 0, 0); ctx.drawImage(lifeCv, 0, 0);
+        const ts = t / 1000;
         for (const sw of swimmers) {
-          const x = Math.round(sw.x), y = Math.round(sw.y);
-          if (flipped(sw)) { ctx.save(); ctx.translate(x + FISH_W, y); ctx.scale(-1, 1); ctx.drawImage(sw.cv, 0, 0); ctx.restore(); }
+          const x = Math.round(sw.x), y = Math.round(sw.y), a = alphaOf(sw, ts);
+          if (a <= 0) continue;
+          ctx.globalAlpha = a;
+          if (flipped(sw)) { ctx.save(); ctx.translate(x + sw.cv.width, y); ctx.scale(-1, 1); ctx.drawImage(sw.cv, 0, 0); ctx.restore(); }
           else ctx.drawImage(sw.cv, x, y);
         }
+        ctx.globalAlpha = 1;
+        for (const h of pop.hearts) drawHeart(h, ts);
       }
       ocean.tick = (t) => {
         if (!oceanMode || !ocean || ocean.canvas !== canvas) return;
@@ -2631,33 +2881,76 @@
         const dt = ocean.last ? Math.min(0.1, (t - ocean.last) / 1000) : 0;
         ocean.last = t;
         step(t / 1000, dt);
-        if (t - ocean.lastSprite >= 83) { ocean.lastSprite = t; repaintSprites(t); }
+        track(t / 1000);
+        repaintSprites(t, ocean.tickN++ % 3);
         frame(t);
       };
 
-      const hit = (e) => { // front-most creature whose body box is under the pointer
-        const wx = e.offsetX / scale, wy = e.offsetY / scale;
+      const hitAt = (wx, wy) => { // front-most creature whose body box is under a scene point
         for (let i = swimmers.length - 1; i >= 0; i--) {
           const sw = swimmers[i], [bx0, bx1] = bounds(sw);
-          if (wx >= sw.x + bx0 && wx <= sw.x + bx1 + 1 && wy >= sw.y + sw.box.y0 && wy <= sw.y + sw.box.y1 + 1) return sw;
+          if (wx >= sw.x + bx0 && wx <= sw.x + bx1 && wy >= sw.y + sw.box.y0 && wy <= sw.y + sw.box.y1 + 1) return sw;
         }
         return null;
       };
-      const label = (sw) => `${SPECIES[sw.sp].icon} ${KIND_LABELS[sw.f.kind] || SPECIES[sw.sp].label}${sw.sp === 'fish' ? ` (${sw.f.shape})` : ''} · ${sw.seed}`
-        + (fxBadge(sw.f) ? ` · ${fxBadge(sw.f)}` : '');
-      const idle = `${OCEAN_COUNT} creatures · hover one to see its seed, click it to open it in the creator`;
-      cap.textContent = idle;
+      const hit = (e) => hitAt(e.offsetX / scale, e.offsetY / scale);
+      function showCap() {
+        cap.textContent = `${swimmers.length} creatures · ${pop.born} born · ${pop.left} moved on · hover one to hold it and see who it is, click it to open it in the creator`;
+      }
+      showCap();
+
+      // Hover: the creature under the pointer holds still and a tooltip
+      // shows its details. Re-checked every tick, so one that swims under a
+      // resting pointer is caught too.
+      let hovered = null, pointer = null, tipKey = '';
+      const tip = document.createElement('div'); tip.className = 'ocean-tip'; tip.hidden = true; wrap.append(tip);
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
+      const DEPTHS = ['back', 'middle', 'front'], TIP_COLOURS = ['backColor', 'bellyColor', 'finColor', 'patternColor', 'eyeColor', 'glowColor'];
+      function status(sw, t) {
+        if (sw.state === 'court') return `💕 Courting #${sw.mate.k}`;
+        if (sw.state === 'bred') return '🐣 Has had young; moving on soon';
+        if (sw.state === 'leave') return '👋 Moving on';
+        if (t < sw.readyAt) return `🍼 Too young to breed (${Math.ceil(sw.readyAt - t)}s)`;
+        return swimmers.some((o) => o !== sw && o.state === 'free' && o.layer === sw.layer && canBreed(sw.f, o.f))
+          ? 'Looking for a mate' : `No free ${SPECIES[sw.sp].label.toLowerCase()} at this depth to pair with`;
+      }
+      function tipHTML(sw, t) {
+        const kind = KIND_LABELS[sw.f.kind] || SPECIES[sw.sp].label, fx = fxList(sw.f), rar = RARITY[fx.length];
+        const colours = TIP_COLOURS.filter((k) => typeof sw.f[k] === 'string' && sw.f[k].startsWith('#'));
+        return `<div class="tt">${SPECIES[sw.sp].icon} ${esc(kind)}${sw.sp === 'fish' && sw.f.shape ? ` · ${esc(sw.f.shape)}` : ''}</div>`
+          + `<div class="sub">${sw.parents ? `#${sw.k} · Gen ${sw.gen} · young of #${sw.parents[0]} × #${sw.parents[1]}` : `#${sw.k} · ${esc(sw.seed)}`}</div>`
+          + (colours.length ? `<div class="sws">${colours.map((k) => `<span style="background:${esc(sw.f[k])}" title="${esc(SCHEMA_BY_KEY[k]?.label || k)}"></span>`).join('')}</div>` : '')
+          + (fx.length ? `<div style="color:${rar.color || '#c3d0d4'}">${fx.map((k) => EFFECTS[k].icon).join('')} ${rar.name}: ${fx.map((k) => esc(EFFECTS[k].label)).join(', ')}</div>` : '')
+          + `<div>Swimming at the ${DEPTHS[sw.layer]}</div><div>${esc(status(sw, t))}</div>`
+          + '<div class="sub hint">Click to open in the creator</div>';
+      }
+      function track(t) {
+        hovered = pointer ? hitAt(pointer.wx, pointer.wy) : null;
+        canvas.style.cursor = hovered ? 'pointer' : 'default';
+        if (!hovered) { tip.hidden = true; tipKey = ''; return; }
+        const html = tipHTML(hovered, t);
+        if (html !== tipKey) { tip.innerHTML = html; tipKey = html; }
+        tip.hidden = false;
+        // beside the pointer, flipped to the other side near the right or bottom edge
+        const cr = canvas.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+        const px = pointer.cx - wr.left, py = pointer.cy - wr.top;
+        const x = px + 16 + tip.offsetWidth > cr.right - wr.left ? px - 12 - tip.offsetWidth : px + 16;
+        const y = py + 16 + tip.offsetHeight > cr.bottom - wr.top ? py - 12 - tip.offsetHeight : py + 16;
+        tip.style.left = `${Math.max(cr.left - wr.left, x)}px`; tip.style.top = `${Math.max(cr.top - wr.top, y)}px`;
+      }
       canvas.addEventListener('mousemove', (e) => {
-        const sw = hit(e); canvas.style.cursor = sw ? 'pointer' : 'default';
-        cap.textContent = sw ? label(sw) : idle;
+        pointer = { wx: e.offsetX / scale, wy: e.offsetY / scale, cx: e.clientX, cy: e.clientY };
+        track(performance.now() / 1000);
       });
-      canvas.addEventListener('mouseleave', () => { cap.textContent = idle; });
+      canvas.addEventListener('mouseleave', () => { pointer = null; track(0); });
       canvas.addEventListener('click', (e) => {
         const sw = hit(e); if (!sw) return;
-        seedInput.value = sw.seed; features = null; setMode('custom');
+        if (sw.parents) features = structuredClone(sw.f); // the young have no seed of their own
+        else { seedInput.value = sw.seed; features = null; }
+        setMode('custom');
       });
       cancelAnimationFrame(oceanRAF);
-      repaintSprites(0); frame(0);
+      const now = performance.now(); repaintSprites(now); frame(now);
       oceanRAF = requestAnimationFrame(ocean.tick);
     }
 
@@ -2667,7 +2960,7 @@
       customMode = mode === 'custom'; breedMode = mode === 'breed'; oceanMode = mode === 'ocean';
       $('custom-toggle').checked = customMode; $('breed-toggle').checked = breedMode; $('ocean-toggle').checked = oceanMode;
       if (!customMode && animOn) setAnim(false);
-      if (!oceanMode) { cancelAnimationFrame(oceanRAF); ocean = null; }
+      if (!oceanMode) { cancelAnimationFrame(oceanRAF); ocean = null; oceanMax = false; document.body.classList.remove('ocean-max'); }
       renderAll();
     }
 
@@ -2700,6 +2993,7 @@
     $('custom-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'custom' : 'gallery'));
     $('breed-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'breed' : 'gallery'));
     $('ocean-toggle').addEventListener('change', (e) => setMode(e.target.checked ? 'ocean' : 'gallery'));
+    addEventListener('keydown', (e) => { if (e.key === 'Escape' && oceanMax) setOceanMax(false); });
     addEventListener('resize', () => { if (!oceanMode) return; clearTimeout(oceanResize); oceanResize = setTimeout(renderAll, 200); });
     habitatSel.addEventListener('change', () => { habitat = habitatSel.value; buildPaletteControls(); renderAll(); });
     speciesSel.addEventListener('change', () => { if (customMode) features = null; renderAll(); }); // creator reloads its seed as the new species
